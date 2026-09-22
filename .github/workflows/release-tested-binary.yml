@@ -1,4 +1,4 @@
-name: Release tested Windows binary
+name: Build DeskHider Plus beta
 
 on:
   push:
@@ -14,10 +14,9 @@ jobs:
   build-release:
     runs-on: windows-latest
     env:
-      AHK_VERSION: "1.1.37.02"
       AHK_ZIP_SHA256: "6F3663F7CDD25063C8C8728F5D9B07813CED8780522FD1F124BA539E2854215F"
-      EXPECTED_EXE_SHA256: "2d914c038f6f28905dcce5a8b82783f8a9bd51137088a9738f1fcacc824fbf5d"
-      RELEASE_TAG: "v1.0.0"
+      RELEASE_TAG: "v1.1.0-beta.1"
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -28,59 +27,77 @@ jobs:
           $ErrorActionPreference = "Stop"
           $url1 = "https://www.autohotkey.com/download/1.1/AutoHotkey_1.1.37.02.zip"
           $url2 = "https://github.com/AutoHotkey/AutoHotkey/releases/download/v1.1.37.02/AutoHotkey_1.1.37.02.zip"
+
           try {
             Invoke-WebRequest -Uri $url1 -OutFile ahk.zip -UseBasicParsing
           } catch {
             Invoke-WebRequest -Uri $url2 -OutFile ahk.zip -UseBasicParsing
           }
+
           $hash = (Get-FileHash ahk.zip -Algorithm SHA256).Hash
           Write-Host "AutoHotkey ZIP SHA256: $hash"
+
           if ($hash -ne $env:AHK_ZIP_SHA256) {
             throw "AutoHotkey ZIP SHA256 mismatch."
           }
+
           Expand-Archive -LiteralPath ahk.zip -DestinationPath ahk -Force
 
       - name: Compile DeskHiderPlus.exe
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
+
           $compiler = Join-Path $PWD "ahk\Compiler\Ahk2Exe.exe"
           $base = Join-Path $PWD "ahk\Compiler\Unicode 64-bit.bin"
-          & $compiler /in "$PWD\DeskHiderPlus.ahk" /out "$PWD\DeskHiderPlus.exe" /base "$base"
-          # Ahk2Exe can return before the output file is fully materialized on hosted runners.
-          $deadline = (Get-Date).AddSeconds(20)
-          while (!(Test-Path "$PWD\DeskHiderPlus.exe") -and (Get-Date) -lt $deadline) {
-            Start-Sleep -Milliseconds 250
-          }
-          if (!(Test-Path "$PWD\DeskHiderPlus.exe")) {
-            throw "Compilation did not produce DeskHiderPlus.exe within 20 seconds."
-          }
-          $hash = (Get-FileHash "$PWD\DeskHiderPlus.exe" -Algorithm SHA256).Hash.ToLowerInvariant()
-          Write-Host "Built EXE SHA256: $hash"
-          Write-Host "Expected tested EXE SHA256: $env:EXPECTED_EXE_SHA256"
-          if ($hash -ne $env:EXPECTED_EXE_SHA256) {
-            throw "The reproducible build hash does not match the user-tested binary. Release was intentionally stopped."
+          $source = Join-Path $PWD "DeskHiderPlus.ahk"
+          $output = Join-Path $PWD "DeskHiderPlus.exe"
+
+          $args = @(
+            "/in",  ('"' + $source + '"'),
+            "/out", ('"' + $output + '"'),
+            "/base",('"' + $base + '"')
+          )
+
+          $process = Start-Process -FilePath $compiler -ArgumentList $args -Wait -PassThru
+          if ($process.ExitCode -ne 0) {
+            throw "Ahk2Exe failed with exit code $($process.ExitCode)."
           }
 
-      - name: Publish v1.0.0 release
+          if (!(Test-Path $output)) {
+            throw "Compilation did not produce DeskHiderPlus.exe."
+          }
+
+          $hash = (Get-FileHash $output -Algorithm SHA256).Hash.ToLowerInvariant()
+          Write-Host "DeskHiderPlus.exe SHA256: $hash"
+          "EXE_SHA256=$hash" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Publish beta release
         shell: powershell
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           $notes = @"
-          First public DeskHider Plus release.
+          DeskHider Plus v1.1.0 beta 1
 
-          - Windows 10 focused
-          - Double-click empty desktop space to hide/show desktop icons
-          - Hide/restore shortcut arrows from the tray
-          - Optional startup toggle
-          - Shortcut-arrow feature does not poll in the background
+          Changes:
+          - English-only user interface.
+          - Optional tray icon.
+          - The tray icon can be hidden while the app keeps running.
+          - Launch DeskHiderPlus.exe again to restore a hidden tray icon.
+          - No additional polling, service, or permanent process was added.
 
-          Tested binary SHA256:
-          `2d914c038f6f28905dcce5a8b82783f8a9bd51137088a9738f1fcacc824fbf5d`
+          SHA-256:
+          $env:EXE_SHA256
           "@
-          gh release create $env:RELEASE_TAG DeskHiderPlus.exe --title "DeskHider Plus v1.0.0" --notes $notes --target "${{ github.sha }}"
-          if ($LASTEXITCODE -ne 0) {
-            throw "GitHub release creation failed."
+
+          gh release view $env:RELEASE_TAG *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $env:RELEASE_TAG DeskHiderPlus.exe --clobber
+          } else {
+            gh release create $env:RELEASE_TAG DeskHiderPlus.exe --title "DeskHider Plus v1.1.0 beta 1" --notes $notes --target "${{ github.sha }}" --prerelease
           }
-# Source synchronized with the tested v3 Windows binary.
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "GitHub beta release publishing failed."
+          }
