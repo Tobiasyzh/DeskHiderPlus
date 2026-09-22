@@ -4,7 +4,7 @@
 SendMode, Input
 SetWorkingDir, %A_ScriptDir%
 
-; DeskHider Plus v1.1.0 (optional tray icon + English UI)
+; DeskHider Plus v1.1.0 beta 2 (reliable hidden-tray recovery + English UI)
 ; Based on DeskHider by Ian Div (MIT License):
 ; https://github.com/iandiv/DeskHider
 ; Original desktop-icon hit-test logic credited by DeskHider to iPhilip.
@@ -65,15 +65,34 @@ if (A_Args.Length() >= 1)
 }
 
 ; Keep only one normal resident instance, while still allowing the short-lived
-; elevated helper process to run alongside it. If the tray icon is hidden,
-; launching the EXE again restores it in the existing process.
-global SHOW_TRAY_MESSAGE := DllCall("RegisterWindowMessage", "Str", "DeskHiderPlus_ShowTrayIcon", "UInt")
+; elevated helper process to run alongside it.
+;
+; Hidden-tray recovery uses a direct message to the existing script's uniquely
+; named hidden main window. This is more reliable on Windows 10 than broadcasting
+; a registered message to every top-level window.
+global SHOW_TRAY_MESSAGE := 0x8001 ; WM_APP + 1
+global IPC_WINDOW_TITLE := "DeskHiderPlus_IPC_Window"
 global MainMutexHandle := DllCall("CreateMutex", "Ptr", 0, "Int", 0, "Str", "Local\DeskHiderPlus_MainInstance", "Ptr")
 if (A_LastError = 183) ; ERROR_ALREADY_EXISTS
 {
-    DllCall("User32.dll\\PostMessageW", "Ptr", 0xFFFF, "UInt", SHOW_TRAY_MESSAGE, "Ptr", 0, "Ptr", 0)
+    DetectHiddenWindows, On
+    targetHwnd := 0
+    Loop, 20
+    {
+        WinGet, targetHwnd, ID, DeskHiderPlus_IPC_Window ahk_class AutoHotkey
+        if (targetHwnd)
+            break
+        Sleep, 50
+    }
+
+    if (targetHwnd)
+        DllCall("User32.dll\PostMessageW", "Ptr", targetHwnd, "UInt", SHOW_TRAY_MESSAGE, "Ptr", 0, "Ptr", 0)
     ExitApp
 }
+
+; Give the resident instance a stable hidden window name for future launches.
+DetectHiddenWindows, On
+WinSetTitle, ahk_id %A_ScriptHwnd%,, DeskHiderPlus_IPC_Window
 OnMessage(SHOW_TRAY_MESSAGE, "ShowTrayFromMessage")
 
 ; One-time migration from v2. v2 used a PNG-compressed transparent ICO that some
@@ -221,7 +240,7 @@ Return
 ToggleTrayIcon:
     if (TrayIconVisible)
     {
-        MsgBox, 36, DeskHider Plus, Hide the tray icon?`n`nDeskHider Plus will continue running in the background and desktop double-click will keep working.`n`nTo show the tray icon again, simply run DeskHiderPlus.exe a second time.
+        MsgBox, 36, DeskHider Plus, Hide the tray icon?`n`nDeskHider Plus will continue running in the background and desktop double-click will keep working.`n`nTo show the tray icon again, run the same DeskHiderPlus.exe file again. The existing background instance will restore its tray icon.
         IfMsgBox, No
             Return
 
