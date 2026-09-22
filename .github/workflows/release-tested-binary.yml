@@ -1,4 +1,4 @@
-name: Build DeskHider Plus beta
+name: Release DeskHider Plus
 
 on:
   push:
@@ -15,7 +15,8 @@ jobs:
     runs-on: windows-latest
     env:
       AHK_ZIP_SHA256: "6F3663F7CDD25063C8C8728F5D9B07813CED8780522FD1F124BA539E2854215F"
-      RELEASE_TAG: "v1.1.0-beta.2"
+      RELEASE_TAG: "v1.1.0"
+      EXPECTED_EXE_SHA256: "d73183c51264c117917feec1dc334c0a629177712d2923cc5a393fed6723e70d"
 
     steps:
       - name: Checkout
@@ -70,15 +71,19 @@ jobs:
 
           $hash = (Get-FileHash $output -Algorithm SHA256).Hash.ToLowerInvariant()
           Write-Host "DeskHiderPlus.exe SHA256: $hash"
+          Write-Host "Expected tested SHA256: $env:EXPECTED_EXE_SHA256"
+          if ($hash -ne $env:EXPECTED_EXE_SHA256) {
+            throw "The formal release build does not match the user-tested beta 2 binary."
+          }
           "EXE_SHA256=$hash" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-      - name: Publish beta release
+      - name: Publish v1.1.0 release
         shell: powershell
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           $notes = @"
-          DeskHider Plus v1.1.0 beta 2
+          DeskHider Plus v1.1.0
 
           Changes:
           - English-only user interface.
@@ -87,6 +92,7 @@ jobs:
           - Launch DeskHiderPlus.exe again to restore a hidden tray icon.
           - Hidden-tray recovery now uses direct IPC to the resident AutoHotkey window for better Windows 10 reliability.
           - No additional polling, service, or permanent process was added.
+          - This formal build is byte-for-byte identical to the user-tested beta 2 binary.
 
           SHA-256:
           $env:EXE_SHA256
@@ -95,5 +101,5 @@ jobs:
           gh release create $env:RELEASE_TAG DeskHiderPlus.exe --title "DeskHider Plus v1.1.0 beta 2" --notes $notes --target "${{ github.sha }}" --prerelease
 
           if ($LASTEXITCODE -ne 0) {
-            throw "GitHub beta release publishing failed."
+            throw "GitHub release publishing failed."
           }
