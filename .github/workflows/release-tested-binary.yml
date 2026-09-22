@@ -79,10 +79,8 @@ jobs:
           Tested binary SHA256:
           `2d914c038f6f28905dcce5a8b82783f8a9bd51137088a9738f1fcacc824fbf5d`
           "@
-          gh release view $env:RELEASE_TAG *> $null
-          if ($LASTEXITCODE -eq 0) {
-            gh release upload $env:RELEASE_TAG DeskHiderPlus.exe --clobber
-          } else {
-            gh release create $env:RELEASE_TAG DeskHiderPlus.exe --title "DeskHider Plus v1.0.0" --notes $notes --target "${{ github.sha }}"
+          gh release create $env:RELEASE_TAG DeskHiderPlus.exe --title "DeskHider Plus v1.0.0" --notes $notes --target "${{ github.sha }}"
+          if ($LASTEXITCODE -ne 0) {
+            throw "GitHub release creation failed."
           }
 # Source synchronized with the tested v3 Windows binary.
