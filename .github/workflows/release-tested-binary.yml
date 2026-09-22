@@ -98,7 +98,12 @@ jobs:
           $env:EXE_SHA256
           "@
 
-          gh release create $env:RELEASE_TAG DeskHiderPlus.exe --title "DeskHider Plus v1.1.0 beta 2" --notes $notes --target "${{ github.sha }}" --prerelease
+          gh release edit $env:RELEASE_TAG --title "DeskHider Plus v1.1.0" --notes $notes --prerelease=false --draft=false --latest
+          if ($LASTEXITCODE -ne 0) {
+            throw "Failed to finalize the v1.1.0 release metadata."
+          }
+
+          gh release upload $env:RELEASE_TAG DeskHiderPlus.exe --clobber
 
           if ($LASTEXITCODE -ne 0) {
             throw "GitHub release publishing failed."
