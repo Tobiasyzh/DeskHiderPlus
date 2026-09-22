@@ -15,7 +15,7 @@ jobs:
     runs-on: windows-latest
     env:
       AHK_ZIP_SHA256: "6F3663F7CDD25063C8C8728F5D9B07813CED8780522FD1F124BA539E2854215F"
-      RELEASE_TAG: "v1.1.0-beta.1"
+      RELEASE_TAG: "v1.1.0-beta.2"
 
     steps:
       - name: Checkout
@@ -78,20 +78,21 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $notes = @"
-          DeskHider Plus v1.1.0 beta 1
+          DeskHider Plus v1.1.0 beta 2
 
           Changes:
           - English-only user interface.
           - Optional tray icon.
           - The tray icon can be hidden while the app keeps running.
           - Launch DeskHiderPlus.exe again to restore a hidden tray icon.
+          - Hidden-tray recovery now uses direct IPC to the resident AutoHotkey window for better Windows 10 reliability.
           - No additional polling, service, or permanent process was added.
 
           SHA-256:
           $env:EXE_SHA256
           "@
 
-          gh release create $env:RELEASE_TAG DeskHiderPlus.exe --title "DeskHider Plus v1.1.0 beta 1" --notes $notes --target "${{ github.sha }}" --prerelease
+          gh release create $env:RELEASE_TAG DeskHiderPlus.exe --title "DeskHider Plus v1.1.0 beta 2" --notes $notes --target "${{ github.sha }}" --prerelease
 
           if ($LASTEXITCODE -ne 0) {
             throw "GitHub beta release publishing failed."
