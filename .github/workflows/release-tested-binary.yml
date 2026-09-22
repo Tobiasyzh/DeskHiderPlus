@@ -47,8 +47,13 @@ jobs:
           $compiler = Join-Path $PWD "ahk\Compiler\Ahk2Exe.exe"
           $base = Join-Path $PWD "ahk\Compiler\Unicode 64-bit.bin"
           & $compiler /in "$PWD\DeskHiderPlus.ahk" /out "$PWD\DeskHiderPlus.exe" /base "$base"
+          # Ahk2Exe can return before the output file is fully materialized on hosted runners.
+          $deadline = (Get-Date).AddSeconds(20)
+          while (!(Test-Path "$PWD\DeskHiderPlus.exe") -and (Get-Date) -lt $deadline) {
+            Start-Sleep -Milliseconds 250
+          }
           if (!(Test-Path "$PWD\DeskHiderPlus.exe")) {
-            throw "Compilation did not produce DeskHiderPlus.exe"
+            throw "Compilation did not produce DeskHiderPlus.exe within 20 seconds."
           }
           $hash = (Get-FileHash "$PWD\DeskHiderPlus.exe" -Algorithm SHA256).Hash.ToLowerInvariant()
           Write-Host "Built EXE SHA256: $hash"
