@@ -71,7 +71,7 @@ global SHOW_TRAY_MESSAGE := DllCall("RegisterWindowMessage", "Str", "DeskHiderPl
 global MainMutexHandle := DllCall("CreateMutex", "Ptr", 0, "Int", 0, "Str", "Local\DeskHiderPlus_MainInstance", "Ptr")
 if (A_LastError = 183) ; ERROR_ALREADY_EXISTS
 {
-    DllCall("PostMessage", "Ptr", 0xFFFF, "UInt", SHOW_TRAY_MESSAGE, "Ptr", 0, "Ptr", 0)
+    DllCall("User32.dll\\PostMessageW", "Ptr", 0xFFFF, "UInt", SHOW_TRAY_MESSAGE, "Ptr", 0, "Ptr", 0)
     ExitApp
 }
 OnMessage(SHOW_TRAY_MESSAGE, "ShowTrayFromMessage")
@@ -111,7 +111,6 @@ ApplyTrayPreference()
 RefreshTrayState()
 Return
 
-; -----------------------------------------------------------------------------
 ; -----------------------------------------------------------------------------
 ; Desktop double-click handling (keeps the original DeskHider approach)
 ; -----------------------------------------------------------------------------
@@ -255,7 +254,6 @@ QuitScript:
     ExitApp
 Return
 
-; -----------------------------------------------------------------------------
 ; -----------------------------------------------------------------------------
 ; Original DeskHider desktop functions
 ; -----------------------------------------------------------------------------
