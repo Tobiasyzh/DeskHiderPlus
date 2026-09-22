@@ -26,11 +26,11 @@ The shortcut-arrow feature does **not** poll in the background. It only updates 
 
 ## Download
 
-### v1.1.0 beta 2
+### v1.1.0
 
-The current beta adds the optional tray icon, switches the user interface to English, and fixes hidden-tray recovery on Windows 10 by sending a direct message to the already-running instance.
+The current stable release adds the optional tray icon, switches the user interface to English, and includes reliable hidden-tray recovery on Windows 10 by signaling the already-running instance directly.
 
-[Download v1.1.0 beta 2](https://github.com/Tobiasyzh/DeskHiderPlus/releases/tag/v1.1.0-beta.2)
+[Download v1.1.0](https://github.com/Tobiasyzh/DeskHiderPlus/releases/tag/v1.1.0)
 
 Direct asset: `DeskHiderPlus.exe` (1,243,136 bytes)
 
@@ -39,6 +39,8 @@ SHA-256:
 ```text
 d73183c51264c117917feec1dc334c0a629177712d2923cc5a393fed6723e70d
 ```
+
+This stable binary is byte-for-byte identical to the user-tested v1.1.0 beta 2 build.
 
 ### v1.0.0
 
