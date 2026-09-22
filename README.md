@@ -19,6 +19,9 @@ The shortcut-arrow feature does **not** poll in the background. It only updates 
 - Uses a classic transparent BMP/DIB ICO to avoid the black-square overlay issue seen on some Windows 10 builds.
 - Requests administrator privileges only for hide/restore shortcut-arrow actions.
 - Optional startup toggle from the tray menu.
+- Optional tray icon. Hide it after setup for a cleaner notification area.
+- If the tray icon is hidden, launch `DeskHiderPlus.exe` again to bring it back.
+- English-only user interface.
 - No installer required.
 
 ## Download
@@ -53,10 +56,15 @@ The build script verifies the AutoHotkey archive against:
 Run `DeskHiderPlus.exe`.
 
 - **Desktop:** double-click an empty area to hide/show desktop icons.
-- **Tray → 隐藏快捷方式箭头:** hide shortcut arrows. Windows will request administrator approval and Explorer will restart.
-- **Tray → 恢复快捷方式箭头:** restore the shortcut-arrow setting that existed before DeskHider Plus changed it.
-- **Tray → 开机启动:** enable/disable startup with Windows.
-- **Tray → 退出:** exit the resident utility.
+- **Tray → Hide shortcut arrows:** hide shortcut arrows. Windows will request administrator approval and Explorer will restart.
+- **Tray → Restore shortcut arrows:** restore the shortcut-arrow setting that existed before DeskHider Plus changed it.
+- **Tray → Run at startup:** enable/disable startup with Windows.
+- **Tray → Show tray icon:** uncheck this to hide the tray icon while keeping DeskHider Plus running.
+- **Tray → Exit:** exit the resident utility.
+
+### Hidden tray icon recovery
+
+When `Show tray icon` is unchecked, DeskHider Plus keeps running normally and desktop double-click still works. To restore the tray icon, simply run `DeskHiderPlus.exe` again. The already-running instance receives the request, shows its tray icon again, and keeps a single resident process.
 
 When shortcut arrows are hidden, the transparent overlay file is stored at:
 
@@ -74,6 +82,7 @@ DeskHider Plus is designed to stay small:
 - No Windows service.
 - No scheduled task.
 - No second permanent process.
+- Hiding the tray icon does not create another process or polling loop.
 - The elevated helper process exists only during an arrow hide/restore operation and exits immediately afterward.
 
 ## Compatibility
@@ -81,17 +90,6 @@ DeskHider Plus is designed to stay small:
 The current version is intended for **Windows 10** and uses **AutoHotkey v1** syntax.
 
 The shortcut-arrow modification relies on Windows Explorer's `Shell Icons\\29` behavior. Windows updates may change shell behavior, so the program includes a restore path and avoids overwriting a `29` value that another program changed after DeskHider Plus.
-
-## 中文说明
-
-DeskHider Plus 是一个针对 Windows 10 的轻量桌面工具，主要提供两个功能：
-
-1. 双击桌面空白处隐藏/显示桌面图标。
-2. 在托盘菜单中隐藏/恢复快捷方式左下角的小箭头。
-
-快捷方式箭头功能不是后台轮询实现的，只在你点击对应菜单时修改一次系统设置，因此不会额外增加持续的 CPU 占用。隐藏/恢复箭头时需要一次管理员权限，并会重启 Windows 资源管理器以立即生效。
-
-直接双击 `Build.cmd` 即可编译，不需要提前安装 AutoHotkey。
 
 ## Credits and licensing
 
