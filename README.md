@@ -21,6 +21,18 @@ The shortcut-arrow feature does **not** poll in the background. It only updates 
 - Optional startup toggle from the tray menu.
 - No installer required.
 
+## Download
+
+The tested Windows 10 binary is available from the [v1.0.0 release](https://github.com/Tobiasyzh/DeskHiderPlus/releases/tag/v1.0.0).
+
+Direct asset: `DeskHiderPlus.exe` (1,241,088 bytes)
+
+SHA-256:
+
+```text
+2d914c038f6f28905dcce5a8b82783f8a9bd51137088a9738f1fcacc824fbf5d
+```
+
 ## Build
 
 1. Download or clone this repository.
