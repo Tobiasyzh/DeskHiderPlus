@@ -80,3 +80,4 @@ jobs:
           } else {
             gh release create $env:RELEASE_TAG DeskHiderPlus.exe --title "DeskHider Plus v1.0.0" --notes $notes --target "${{ github.sha }}"
           }
+# Source synchronized with the tested v3 Windows binary.
