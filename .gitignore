@@ -1,0 +1,17 @@
+# Local build output
+DeskHiderPlus.exe
+build_log.txt
+
+# Downloaded / packaged artifacts
+*.zip
+
+# Windows metadata
+Thumbs.db
+Desktop.ini
+
+# Editor / temporary files
+*.tmp
+*.bak
+*~
+.vscode/
+.idea/
