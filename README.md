@@ -26,9 +26,25 @@ The shortcut-arrow feature does **not** poll in the background. It only updates 
 
 ## Download
 
-The tested Windows 10 binary is available from the [v1.0.0 release](https://github.com/Tobiasyzh/DeskHiderPlus/releases/tag/v1.0.0).
+### v1.1.0 beta 1
 
-Direct asset: `DeskHiderPlus.exe` (1,241,088 bytes)
+The current beta adds the optional tray icon and switches the user interface to English:
+
+[Download v1.1.0 beta 1](https://github.com/Tobiasyzh/DeskHiderPlus/releases/tag/v1.1.0-beta.1)
+
+Direct asset: `DeskHiderPlus.exe` (1,242,624 bytes)
+
+SHA-256:
+
+```text
+eaa19cf0d2571bf86bc985d8fca73ea1238bdc68ba29eb842523c0f117b2cb62
+```
+
+### v1.0.0
+
+The original tested Windows 10 release remains available here:
+
+[Download v1.0.0](https://github.com/Tobiasyzh/DeskHiderPlus/releases/tag/v1.0.0)
 
 SHA-256:
 
