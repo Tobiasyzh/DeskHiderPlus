@@ -4,7 +4,7 @@
 SendMode, Input
 SetWorkingDir, %A_ScriptDir%
 
-; DeskHider Plus v3 (Windows 10 transparency fix)
+; DeskHider Plus v1.1.0 (optional tray icon + English UI)
 ; Based on DeskHider by Ian Div (MIT License):
 ; https://github.com/iandiv/DeskHider
 ; Original desktop-icon hit-test logic credited by DeskHider to iPhilip.
@@ -13,6 +13,8 @@ SetWorkingDir, %A_ScriptDir%
 ; - Hide / restore Windows shortcut arrows from tray menu
 ; - Preserve the pre-existing Shell Icons\29 value and restore it safely
 ; - Optional Run at startup toggle
+; - Optional tray icon with persistent preference
+; - Launch the EXE again to restore a hidden tray icon
 ; - No polling for the arrow feature; idle work is the same desktop-click listener model
 
 ; -----------------------------------------------------------------------------
@@ -22,6 +24,7 @@ SetWorkingDir, %A_ScriptDir%
 global APP_NAME := "DeskHider Plus"
 global SHELL_ICONS_KEY := "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Shell Icons"
 global APP_REG_KEY := "HKLM\SOFTWARE\DeskHiderPlus"
+global USER_REG_KEY := "HKCU\SOFTWARE\DeskHiderPlus"
 global RUN_KEY := "HKCU\Software\Microsoft\Windows\CurrentVersion\Run"
 global BLANK_ICON_DIR := A_AppDataCommon "\DeskHiderPlus"
 global BLANK_ICON_PATH := BLANK_ICON_DIR "\blank_v3.ico"
@@ -30,6 +33,7 @@ global OVERLAY_VALUE := BLANK_ICON_PATH
 global LEGACY_OVERLAY_VALUE1 := LEGACY_BLANK_ICON_PATH ",0"
 global LEGACY_OVERLAY_VALUE2 := LEGACY_BLANK_ICON_PATH
 global DesktopIconsIsShow := 1
+global TrayIconVisible := 1
 
 ; A classic 24x24 transparent ICO (BMP/DIB + AND mask), embedded as Base64.
 ; This avoids the black-square issue that PNG-compressed ICO overlays can cause on Windows 10.
@@ -61,16 +65,22 @@ if (A_Args.Length() >= 1)
 }
 
 ; Keep only one normal resident instance, while still allowing the short-lived
-; elevated helper process to run alongside it.
+; elevated helper process to run alongside it. If the tray icon is hidden,
+; launching the EXE again restores it in the existing process.
+global SHOW_TRAY_MESSAGE := DllCall("RegisterWindowMessage", "Str", "DeskHiderPlus_ShowTrayIcon", "UInt")
 global MainMutexHandle := DllCall("CreateMutex", "Ptr", 0, "Int", 0, "Str", "Local\DeskHiderPlus_MainInstance", "Ptr")
 if (A_LastError = 183) ; ERROR_ALREADY_EXISTS
+{
+    DllCall("PostMessage", "Ptr", 0xFFFF, "UInt", SHOW_TRAY_MESSAGE, "Ptr", 0, "Ptr", 0)
     ExitApp
+}
+OnMessage(SHOW_TRAY_MESSAGE, "ShowTrayFromMessage")
 
 ; One-time migration from v2. v2 used a PNG-compressed transparent ICO that some
 ; Windows 10 builds render as an opaque black square. Offer to repair it once.
 if (IsLegacyOverlayActive())
 {
-    MsgBox, 36, DeskHider Plus v3, 检测到 DeskHider Plus v2 的旧版快捷方式箭头设置。`n`n该旧版透明图标在部分 Windows 10 上会显示成你截图里的黑色方块。v3 已改为传统 BMP/DIB + AND Mask 透明 ICO，并使用新的文件名避免旧图标缓存。`n`n是否现在自动修复？
+    MsgBox, 36, DeskHider Plus, A legacy DeskHider Plus shortcut-arrow setting was detected.`n`nOlder transparent icons can appear as black squares on some Windows 10 systems. This version uses a classic BMP/DIB icon with an AND transparency mask and a new filename to avoid the old icon cache.`n`nRepair it now?
     IfMsgBox, Yes
     {
         code := RunElevatedHelper("/hidearrows")
@@ -80,7 +90,7 @@ if (IsLegacyOverlayActive())
             DesktopIconsIsShow := 1
         }
         else if (code != "ERROR")
-            MsgBox, 16, DeskHider Plus v3, 自动修复失败。错误代码：%code%
+            MsgBox, 16, DeskHider Plus, Automatic repair failed. Error code: %code%
     }
 }
 
@@ -89,16 +99,19 @@ if (IsLegacyOverlayActive())
 ; -----------------------------------------------------------------------------
 
 Menu, Tray, NoStandard
-Menu, Tray, Add, 隐藏快捷方式箭头, TrayHideArrows
-Menu, Tray, Add, 恢复快捷方式箭头, TrayRestoreArrows
+Menu, Tray, Add, Hide shortcut arrows, TrayHideArrows
+Menu, Tray, Add, Restore shortcut arrows, TrayRestoreArrows
 Menu, Tray, Add
-Menu, Tray, Add, 开机启动, ToggleStartup
+Menu, Tray, Add, Run at startup, ToggleStartup
+Menu, Tray, Add, Show tray icon, ToggleTrayIcon
 Menu, Tray, Add
-Menu, Tray, Add, 退出, QuitScript
+Menu, Tray, Add, Exit, QuitScript
 Menu, Tray, Tip, DeskHider Plus
-Gosub, RefreshTrayState
+ApplyTrayPreference()
+RefreshTrayState()
 Return
 
+; -----------------------------------------------------------------------------
 ; -----------------------------------------------------------------------------
 ; Desktop double-click handling (keeps the original DeskHider approach)
 ; -----------------------------------------------------------------------------
@@ -128,59 +141,59 @@ Return
 TrayHideArrows:
     if (IsArrowsHiddenByUs())
     {
-        MsgBox, 64, DeskHider Plus, 快捷方式箭头已经处于隐藏状态。
+        MsgBox, 64, DeskHider Plus, Shortcut arrows are already hidden.
         Return
     }
 
-    MsgBox, 36, DeskHider Plus, 将隐藏 Windows 快捷方式箭头。`n`n只在这一次操作时需要管理员权限。为了立即生效，完成后会重启 Windows 资源管理器，已打开的文件夹窗口可能会关闭。`n`n是否继续？
+    MsgBox, 36, DeskHider Plus, DeskHider Plus will hide Windows shortcut arrows.`n`nAdministrator permission is required only for this operation. Windows Explorer will restart so the change takes effect immediately, and open File Explorer windows may close.`n`nContinue?
     IfMsgBox, No
         Return
 
     code := RunElevatedHelper("/hidearrows")
     if (code = "ERROR")
     {
-        MsgBox, 48, DeskHider Plus, 操作未执行。可能是管理员权限请求被取消。
+        MsgBox, 48, DeskHider Plus, The operation was not completed. The administrator permission request may have been cancelled.
         Return
     }
 
     if (code != 0)
     {
-        MsgBox, 16, DeskHider Plus, 隐藏快捷方式箭头失败。错误代码：%code%
+        MsgBox, 16, DeskHider Plus, Failed to hide shortcut arrows. Error code: %code%
         Return
     }
 
     RestartExplorer()
     DesktopIconsIsShow := 1
-    Gosub, RefreshTrayState
+    RefreshTrayState()
 Return
 
 TrayRestoreArrows:
-    MsgBox, 36, DeskHider Plus, 将恢复 DeskHider Plus 修改前的快捷方式箭头设置。`n`n只在这一次操作时需要管理员权限。为了立即生效，完成后会重启 Windows 资源管理器，已打开的文件夹窗口可能会关闭。`n`n是否继续？
+    MsgBox, 36, DeskHider Plus, DeskHider Plus will restore the shortcut-arrow setting that existed before it made changes.`n`nAdministrator permission is required only for this operation. Windows Explorer will restart so the change takes effect immediately, and open File Explorer windows may close.`n`nContinue?
     IfMsgBox, No
         Return
 
     code := RunElevatedHelper("/restorearrows")
     if (code = "ERROR")
     {
-        MsgBox, 48, DeskHider Plus, 操作未执行。可能是管理员权限请求被取消。
+        MsgBox, 48, DeskHider Plus, The operation was not completed. The administrator permission request may have been cancelled.
         Return
     }
 
     if (code = 31)
     {
-        MsgBox, 48, DeskHider Plus, 当前快捷方式箭头设置已经被其他程序或手动操作修改。为避免覆盖你的其他设置，本程序没有继续恢复。
+        MsgBox, 48, DeskHider Plus, The shortcut-arrow setting was changed by another program or manually after DeskHider Plus modified it. To avoid overwriting that newer setting, restore was cancelled.
         Return
     }
 
     if (code != 0)
     {
-        MsgBox, 16, DeskHider Plus, 恢复快捷方式箭头失败。错误代码：%code%
+        MsgBox, 16, DeskHider Plus, Failed to restore shortcut arrows. Error code: %code%
         Return
     }
 
     RestartExplorer()
     DesktopIconsIsShow := 1
-    Gosub, RefreshTrayState
+    RefreshTrayState()
 Return
 
 ToggleStartup:
@@ -189,7 +202,7 @@ ToggleStartup:
         RegDelete, %RUN_KEY%, DeskHiderPlus
         if (ErrorLevel)
         {
-            MsgBox, 16, DeskHider Plus, 关闭开机启动失败。
+            MsgBox, 16, DeskHider Plus, Failed to disable Run at startup.
             Return
         }
     }
@@ -199,28 +212,50 @@ ToggleStartup:
         RegWrite, REG_SZ, %RUN_KEY%, DeskHiderPlus, %startupCmd%
         if (ErrorLevel)
         {
-            MsgBox, 16, DeskHider Plus, 设置开机启动失败。
+            MsgBox, 16, DeskHider Plus, Failed to enable Run at startup.
             Return
         }
     }
-    Gosub, RefreshTrayState
+    RefreshTrayState()
 Return
 
-RefreshTrayState:
-    Menu, Tray, Uncheck, 隐藏快捷方式箭头
-    Menu, Tray, Uncheck, 开机启动
+ToggleTrayIcon:
+    if (TrayIconVisible)
+    {
+        MsgBox, 36, DeskHider Plus, Hide the tray icon?`n`nDeskHider Plus will continue running in the background and desktop double-click will keep working.`n`nTo show the tray icon again, simply run DeskHiderPlus.exe a second time.
+        IfMsgBox, No
+            Return
 
-    if (IsArrowsHiddenByUs())
-        Menu, Tray, Check, 隐藏快捷方式箭头
+        RegWrite, REG_DWORD, %USER_REG_KEY%, ShowTrayIcon, 0
+        if (ErrorLevel)
+        {
+            MsgBox, 16, DeskHider Plus, Failed to save the tray icon preference.
+            Return
+        }
 
-    if (IsStartupEnabled())
-        Menu, Tray, Check, 开机启动
+        TrayIconVisible := 0
+        Menu, Tray, NoIcon
+    }
+    else
+    {
+        RegWrite, REG_DWORD, %USER_REG_KEY%, ShowTrayIcon, 1
+        if (ErrorLevel)
+        {
+            MsgBox, 16, DeskHider Plus, Failed to save the tray icon preference.
+            Return
+        }
+
+        TrayIconVisible := 1
+        Menu, Tray, Icon
+        RefreshTrayState()
+    }
 Return
 
 QuitScript:
     ExitApp
 Return
 
+; -----------------------------------------------------------------------------
 ; -----------------------------------------------------------------------------
 ; Original DeskHider desktop functions
 ; -----------------------------------------------------------------------------
@@ -358,7 +393,7 @@ HideShortcutArrowsAdmin()
         }
     }
 
-    ; Recreate the icon every time so v2 PNG-based blank.ico is automatically repaired.
+    ; Recreate the icon when applying the setting so legacy PNG-based blank.ico files are repaired.
     FileCreateDir, %BLANK_ICON_DIR%
     if (!FileExist(BLANK_ICON_DIR))
     {
@@ -379,7 +414,7 @@ HideShortcutArrowsAdmin()
         return 26
     }
 
-    ; v3 uses a new filename so Explorer cannot reuse the cached malformed v2 overlay.
+    ; This version uses a dedicated filename so Explorer cannot reuse the cached malformed v2 overlay.
     FileDelete, %LEGACY_BLANK_ICON_PATH%
 
     RestoreDefaultRegistryView()
@@ -525,6 +560,55 @@ RestartExplorer()
     WinWait, ahk_class Shell_TrayWnd,, 5
     if (ErrorLevel)
         Run, explorer.exe
+}
+
+; -----------------------------------------------------------------------------
+; Tray icon preference / recovery
+; -----------------------------------------------------------------------------
+
+ApplyTrayPreference()
+{
+    global USER_REG_KEY, TrayIconVisible
+
+    RegRead, showTray, %USER_REG_KEY%, ShowTrayIcon
+    if (ErrorLevel)
+        showTray := 1
+
+    TrayIconVisible := showTray ? 1 : 0
+
+    if (TrayIconVisible)
+        Menu, Tray, Icon
+    else
+        Menu, Tray, NoIcon
+}
+
+RefreshTrayState()
+{
+    global TrayIconVisible
+
+    Menu, Tray, Uncheck, Hide shortcut arrows
+    Menu, Tray, Uncheck, Run at startup
+    Menu, Tray, Uncheck, Show tray icon
+
+    if (IsArrowsHiddenByUs())
+        Menu, Tray, Check, Hide shortcut arrows
+
+    if (IsStartupEnabled())
+        Menu, Tray, Check, Run at startup
+
+    if (TrayIconVisible)
+        Menu, Tray, Check, Show tray icon
+}
+
+ShowTrayFromMessage(wParam, lParam, msg, hwnd)
+{
+    global USER_REG_KEY, TrayIconVisible
+
+    RegWrite, REG_DWORD, %USER_REG_KEY%, ShowTrayIcon, 1
+    TrayIconVisible := 1
+    Menu, Tray, Icon
+    RefreshTrayState()
+    return 0
 }
 
 ; -----------------------------------------------------------------------------
