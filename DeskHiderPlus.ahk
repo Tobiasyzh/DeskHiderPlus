@@ -4,7 +4,7 @@
 SendMode, Input
 SetWorkingDir, %A_ScriptDir%
 
-; DeskHider Plus v1.1.0 beta 2 (reliable hidden-tray recovery + English UI)
+; DeskHider Plus v1.1.1 beta 1 (mask-only shortcut overlays + v3 migration)
 ; Based on DeskHider by Ian Div (MIT License):
 ; https://github.com/iandiv/DeskHider
 ; Original desktop-icon hit-test logic credited by DeskHider to iPhilip.
@@ -27,17 +27,13 @@ global APP_REG_KEY := "HKLM\SOFTWARE\DeskHiderPlus"
 global USER_REG_KEY := "HKCU\SOFTWARE\DeskHiderPlus"
 global RUN_KEY := "HKCU\Software\Microsoft\Windows\CurrentVersion\Run"
 global BLANK_ICON_DIR := A_AppDataCommon "\DeskHiderPlus"
-global BLANK_ICON_PATH := BLANK_ICON_DIR "\blank_v3.ico"
+global BLANK_ICON_PATH := BLANK_ICON_DIR "\blank_v4_mask.ico"
+global V3_BLANK_ICON_PATH := BLANK_ICON_DIR "\blank_v3.ico"
 global LEGACY_BLANK_ICON_PATH := BLANK_ICON_DIR "\blank.ico"
-global OVERLAY_VALUE := BLANK_ICON_PATH
-global LEGACY_OVERLAY_VALUE1 := LEGACY_BLANK_ICON_PATH ",0"
-global LEGACY_OVERLAY_VALUE2 := LEGACY_BLANK_ICON_PATH
+global OWNED_ICON_PATHS := [BLANK_ICON_PATH, V3_BLANK_ICON_PATH, LEGACY_BLANK_ICON_PATH]
+global OVERLAY_VALUE := BLANK_ICON_PATH ",0"
 global DesktopIconsIsShow := 1
 global TrayIconVisible := 1
-
-; A classic 24x24 transparent ICO (BMP/DIB + AND mask), embedded as Base64.
-; This avoids the black-square issue that PNG-compressed ICO overlays can cause on Windows 10.
-global TRANSPARENT_ICO_B64 := "AAABAAEAGBgAAAEAIACICQAAFgAAACgAAAAYAAAAMAAAAAEAIAAAAAAAAAkAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wA="
 
 ; -----------------------------------------------------------------------------
 ; Elevated helper mode. Normal daily use stays non-admin.
@@ -46,6 +42,10 @@ global TRANSPARENT_ICO_B64 := "AAABAAEAGBgAAAEAIACICQAAFgAAACgAAAAYAAAAMAAAAAEAI
 if (A_Args.Length() >= 1)
 {
     action := A_Args[1]
+
+    ; Parse/build smoke check: exits before touching settings or the resident app.
+    if (action = "/validate")
+        ExitApp, 0
 
     if (action = "/hidearrows")
     {
@@ -95,11 +95,11 @@ DetectHiddenWindows, On
 WinSetTitle, ahk_id %A_ScriptHwnd%,, DeskHiderPlus_IPC_Window
 OnMessage(SHOW_TRAY_MESSAGE, "ShowTrayFromMessage")
 
-; One-time migration from v2. v2 used a PNG-compressed transparent ICO that some
-; Windows 10 builds render as an opaque black square. Offer to repair it once.
+; One-time migration from both PNG-based blank.ico and 32bpp blank_v3.ico.
+; The replacement is persisted before Explorer restarts, so it is ready at logon.
 if (IsLegacyOverlayActive())
 {
-    MsgBox, 36, DeskHider Plus, A legacy DeskHider Plus shortcut-arrow setting was detected.`n`nOlder transparent icons can appear as black squares on some Windows 10 systems. This version uses a classic BMP/DIB icon with an AND transparency mask and a new filename to avoid the old icon cache.`n`nRepair it now?
+    MsgBox, 36, DeskHider Plus, An older or missing DeskHider Plus shortcut overlay was detected.`n`nOlder transparent icons can cover or cut out the lower-left corner of shortcuts after sign-in. This version uses a multi-size monochrome icon with an AND transparency mask and no alpha channel.`n`nRepair it now? Administrator permission is required and Windows Explorer will restart. Open File Explorer windows may close.
     IfMsgBox, Yes
     {
         code := RunElevatedHelper("/hidearrows")
@@ -118,7 +118,7 @@ if (IsLegacyOverlayActive())
 ; -----------------------------------------------------------------------------
 
 Menu, Tray, NoStandard
-Menu, Tray, Add, Hide shortcut arrows, TrayHideArrows
+Menu, Tray, Add, Hide / repair shortcut arrows, TrayHideArrows
 Menu, Tray, Add, Restore shortcut arrows, TrayRestoreArrows
 Menu, Tray, Add
 Menu, Tray, Add, Run at startup, ToggleStartup
@@ -157,13 +157,7 @@ Return
 ; -----------------------------------------------------------------------------
 
 TrayHideArrows:
-    if (IsArrowsHiddenByUs())
-    {
-        MsgBox, 64, DeskHider Plus, Shortcut arrows are already hidden.
-        Return
-    }
-
-    MsgBox, 36, DeskHider Plus, DeskHider Plus will hide Windows shortcut arrows.`n`nAdministrator permission is required only for this operation. Windows Explorer will restart so the change takes effect immediately, and open File Explorer windows may close.`n`nContinue?
+    MsgBox, 36, DeskHider Plus, DeskHider Plus will hide or repair Windows shortcut arrows using a mask-only transparent icon.`n`nAdministrator permission is required only for this operation. Windows Explorer will restart so the change takes effect immediately, and open File Explorer windows may close.`n`nContinue?
     IfMsgBox, No
         Return
 
@@ -372,203 +366,6 @@ RunElevatedHelper(action)
     return ErrorLevel
 }
 
-HideShortcutArrowsAdmin()
-{
-    global SHELL_ICONS_KEY, APP_REG_KEY, BLANK_ICON_DIR, BLANK_ICON_PATH, LEGACY_BLANK_ICON_PATH, OVERLAY_VALUE, LEGACY_OVERLAY_VALUE1, LEGACY_OVERLAY_VALUE2, TRANSPARENT_ICO_B64
-
-    UseNativeRegistryView()
-
-    ; Save the pre-existing value only once, so Restore can put it back.
-    RegRead, backupState, %APP_REG_KEY%, BackupState
-    if (ErrorLevel)
-    {
-        RegRead, oldValue, %SHELL_ICONS_KEY%, 29
-        if (ErrorLevel || oldValue = LEGACY_OVERLAY_VALUE1 || oldValue = LEGACY_OVERLAY_VALUE2)
-        {
-            ; If v2 is present but its backup metadata is gone, do not preserve the broken overlay as the user's original setting.
-            RegWrite, REG_SZ, %APP_REG_KEY%, BackupState, MISSING
-            if (ErrorLevel)
-            {
-                RestoreDefaultRegistryView()
-                return 21
-            }
-        }
-        else
-        {
-            RegWrite, REG_SZ, %APP_REG_KEY%, BackupState, VALUE
-            if (ErrorLevel)
-            {
-                RestoreDefaultRegistryView()
-                return 22
-            }
-            RegWrite, REG_SZ, %APP_REG_KEY%, BackupValue, %oldValue%
-            if (ErrorLevel)
-            {
-                RestoreDefaultRegistryView()
-                return 23
-            }
-        }
-    }
-
-    ; Recreate the icon when applying the setting so legacy PNG-based blank.ico files are repaired.
-    FileCreateDir, %BLANK_ICON_DIR%
-    if (!FileExist(BLANK_ICON_DIR))
-    {
-        RestoreDefaultRegistryView()
-        return 24
-    }
-
-    if (!WriteBase64File(TRANSPARENT_ICO_B64, BLANK_ICON_PATH))
-    {
-        RestoreDefaultRegistryView()
-        return 25
-    }
-
-    RegWrite, REG_SZ, %SHELL_ICONS_KEY%, 29, %OVERLAY_VALUE%
-    if (ErrorLevel)
-    {
-        RestoreDefaultRegistryView()
-        return 26
-    }
-
-    ; This version uses a dedicated filename so Explorer cannot reuse the cached malformed v2 overlay.
-    FileDelete, %LEGACY_BLANK_ICON_PATH%
-
-    RestoreDefaultRegistryView()
-    return 0
-}
-
-RestoreShortcutArrowsAdmin()
-{
-    global SHELL_ICONS_KEY, APP_REG_KEY, BLANK_ICON_DIR, BLANK_ICON_PATH, LEGACY_BLANK_ICON_PATH, OVERLAY_VALUE, LEGACY_OVERLAY_VALUE1, LEGACY_OVERLAY_VALUE2
-
-    UseNativeRegistryView()
-
-    RegRead, currentValue, %SHELL_ICONS_KEY%, 29
-    currentMissing := ErrorLevel
-
-    ; If another program changed Shell Icons\29 after we did, don't overwrite it.
-    if (!currentMissing && currentValue != OVERLAY_VALUE && currentValue != LEGACY_OVERLAY_VALUE1 && currentValue != LEGACY_OVERLAY_VALUE2)
-    {
-        RestoreDefaultRegistryView()
-        return 31
-    }
-
-    RegRead, backupState, %APP_REG_KEY%, BackupState
-    if (ErrorLevel)
-    {
-        ; No backup means we can only safely remove our own value.
-        if (!currentMissing && (currentValue = OVERLAY_VALUE || currentValue = LEGACY_OVERLAY_VALUE1 || currentValue = LEGACY_OVERLAY_VALUE2))
-            RegDelete, %SHELL_ICONS_KEY%, 29
-    }
-    else if (backupState = "VALUE")
-    {
-        RegRead, backupValue, %APP_REG_KEY%, BackupValue
-        if (ErrorLevel)
-        {
-            RestoreDefaultRegistryView()
-            return 32
-        }
-        RegWrite, REG_SZ, %SHELL_ICONS_KEY%, 29, %backupValue%
-        if (ErrorLevel)
-        {
-            RestoreDefaultRegistryView()
-            return 33
-        }
-    }
-    else
-    {
-        RegDelete, %SHELL_ICONS_KEY%, 29
-        ; RegDelete reports an error when already absent; that is harmless here.
-    }
-
-    RegDelete, %APP_REG_KEY%
-    FileDelete, %BLANK_ICON_PATH%
-    FileDelete, %LEGACY_BLANK_ICON_PATH%
-    FileRemoveDir, %BLANK_ICON_DIR%
-
-    RestoreDefaultRegistryView()
-    return 0
-}
-
-IsLegacyOverlayActive()
-{
-    global SHELL_ICONS_KEY, LEGACY_OVERLAY_VALUE1, LEGACY_OVERLAY_VALUE2
-
-    UseNativeRegistryView()
-    RegRead, currentValue, %SHELL_ICONS_KEY%, 29
-    err := ErrorLevel
-    RestoreDefaultRegistryView()
-
-    return (!err && (currentValue = LEGACY_OVERLAY_VALUE1 || currentValue = LEGACY_OVERLAY_VALUE2))
-}
-
-IsArrowsHiddenByUs()
-{
-    global SHELL_ICONS_KEY, OVERLAY_VALUE
-
-    UseNativeRegistryView()
-    RegRead, currentValue, %SHELL_ICONS_KEY%, 29
-    err := ErrorLevel
-    RestoreDefaultRegistryView()
-
-    return (!err && currentValue = OVERLAY_VALUE)
-}
-
-WriteBase64File(base64Text, filePath)
-{
-    ; CRYPT_STRING_BASE64 = 0x1
-    flags := 0x1
-    binarySize := 0
-
-    ok := DllCall("Crypt32.dll\CryptStringToBinaryW"
-        , "WStr", base64Text
-        , "UInt", 0
-        , "UInt", flags
-        , "Ptr", 0
-        , "UIntP", binarySize
-        , "Ptr", 0
-        , "Ptr", 0)
-
-    if (!ok || binarySize <= 0)
-        return false
-
-    VarSetCapacity(binaryData, binarySize, 0)
-
-    ok := DllCall("Crypt32.dll\CryptStringToBinaryW"
-        , "WStr", base64Text
-        , "UInt", 0
-        , "UInt", flags
-        , "Ptr", &binaryData
-        , "UIntP", binarySize
-        , "Ptr", 0
-        , "Ptr", 0)
-
-    if (!ok)
-        return false
-
-    file := FileOpen(filePath, "w")
-    if (!IsObject(file))
-        return false
-
-    written := file.RawWrite(binaryData, binarySize)
-    file.Close()
-
-    return (written = binarySize)
-}
-
-UseNativeRegistryView()
-{
-    if (A_Is64bitOS)
-        SetRegView, 64
-}
-
-RestoreDefaultRegistryView()
-{
-    if (A_Is64bitOS)
-        SetRegView, Default
-}
-
 RestartExplorer()
 {
     ; Close Explorer, then wait for Windows' normal AutoRestartShell behavior.
@@ -576,7 +373,16 @@ RestartExplorer()
     RunWait, %ComSpec% /c taskkill /f /im explorer.exe,, Hide
     WinWait, ahk_class Shell_TrayWnd,, 5
     if (ErrorLevel)
+    {
         Run, explorer.exe
+        WinWait, ahk_class Shell_TrayWnd,, 5
+    }
+
+    ; Invalidate previously composed shortcut icons once, after the new shell
+    ; has loaded the replacement overlay. No cache-file deletion or logon timer.
+    ; SHCNE_ASSOCCHANGED | SHCNF_IDLIST | SHCNF_FLUSH
+    DllCall("Shell32.dll\SHChangeNotify", "Int", 0x08000000, "UInt", 0x1000
+        , "Ptr", 0, "Ptr", 0)
 }
 
 ; -----------------------------------------------------------------------------
@@ -603,12 +409,12 @@ RefreshTrayState()
 {
     global TrayIconVisible
 
-    Menu, Tray, Uncheck, Hide shortcut arrows
+    Menu, Tray, Uncheck, Hide / repair shortcut arrows
     Menu, Tray, Uncheck, Run at startup
     Menu, Tray, Uncheck, Show tray icon
 
     if (IsArrowsHiddenByUs())
-        Menu, Tray, Check, Hide shortcut arrows
+        Menu, Tray, Check, Hide / repair shortcut arrows
 
     if (IsStartupEnabled())
         Menu, Tray, Check, Run at startup
@@ -650,3 +456,6 @@ IsStartupEnabled()
 
     return (currentValue = GetStartupCommand())
 }
+
+; Shared overlay implementation is also exercised by the isolated regression tests.
+#Include %A_ScriptDir%\lib\ShortcutArrows.ahk

@@ -1,110 +1,142 @@
-name: Release DeskHider Plus
+name: Verify and release DeskHider Plus
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
     paths:
+      - ".github/workflows/release-tested-binary.yml"
+  pull_request:
+    paths:
+      - "DeskHiderPlus.ahk"
+      - "lib/**"
+      - "tests/**"
       - ".github/workflows/release-tested-binary.yml"
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build-release:
     runs-on: windows-latest
+    permissions:
+      contents: write
     env:
       AHK_ZIP_SHA256: "6F3663F7CDD25063C8C8728F5D9B07813CED8780522FD1F124BA539E2854215F"
-      RELEASE_TAG: "v1.1.0"
-      EXPECTED_EXE_SHA256: "d73183c51264c117917feec1dc334c0a629177712d2923cc5a393fed6723e70d"
+      RELEASE_TAG: "v1.1.1-beta.1"
+      EXPECTED_EXE_SHA256: "1dcec7349fc2337bfbd1d4e96e0177e0b3367b743bc968dc24ad62ac9fc73478"
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Download AutoHotkey v1.1.37.02
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Download and verify AutoHotkey v1.1.37.02
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
-          $url1 = "https://www.autohotkey.com/download/1.1/AutoHotkey_1.1.37.02.zip"
-          $url2 = "https://github.com/AutoHotkey/AutoHotkey/releases/download/v1.1.37.02/AutoHotkey_1.1.37.02.zip"
-
+          $url1 = "https://github.com/AutoHotkey/AutoHotkey/releases/download/v1.1.37.02/AutoHotkey_1.1.37.02.zip"
+          $url2 = "https://www.autohotkey.com/download/1.1/AutoHotkey_1.1.37.02.zip"
           try {
             Invoke-WebRequest -Uri $url1 -OutFile ahk.zip -UseBasicParsing
           } catch {
             Invoke-WebRequest -Uri $url2 -OutFile ahk.zip -UseBasicParsing
           }
-
           $hash = (Get-FileHash ahk.zip -Algorithm SHA256).Hash
-          Write-Host "AutoHotkey ZIP SHA256: $hash"
-
-          if ($hash -ne $env:AHK_ZIP_SHA256) {
-            throw "AutoHotkey ZIP SHA256 mismatch."
-          }
-
+          if ($hash -ne $env:AHK_ZIP_SHA256) { throw "AutoHotkey ZIP SHA256 mismatch." }
           Expand-Archive -LiteralPath ahk.zip -DestinationPath ahk -Force
 
-      - name: Compile DeskHiderPlus.exe
+      - name: Test overlay migration and restore (64-bit and 32-bit)
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
+          foreach ($arch in @("64", "32")) {
+            $output = Join-Path $env:RUNNER_TEMP "overlay-tests-x$arch"
+            $log = Join-Path $env:RUNNER_TEMP "overlay-tests-x$arch.log"
+            $interpreter = Join-Path $PWD "ahk\AutoHotkeyU$arch.exe"
+            $arguments = @(
+              "/ErrorStdOut",
+              ('"' + (Join-Path $PWD "tests\ShortcutArrows.test.ahk") + '"'),
+              ('"' + $output + '"')
+            )
+            $process = Start-Process -FilePath $interpreter -ArgumentList $arguments -WindowStyle Hidden -Wait -PassThru -RedirectStandardOutput $log
+            Get-Content -LiteralPath $log
+            if ($process.ExitCode -ne 0) { throw "Overlay tests failed ($arch-bit)." }
+          }
 
+      - name: Verify native rendering and image-list cache round-trip
+        shell: powershell
+        run: |
+          $icon = Join-Path $env:RUNNER_TEMP "overlay-tests-x64\blank_v4_mask.ico"
+          python tests\verify_overlay.py $icon
+          if ($LASTEXITCODE -ne 0) { throw "Overlay rendering verification failed." }
+
+      - name: Compile and validate standalone EXE
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
           $compiler = Join-Path $PWD "ahk\Compiler\Ahk2Exe.exe"
           $base = Join-Path $PWD "ahk\Compiler\Unicode 64-bit.bin"
           $source = Join-Path $PWD "DeskHiderPlus.ahk"
           $output = Join-Path $PWD "DeskHiderPlus.exe"
-
-          $args = @(
-            "/in",  ('"' + $source + '"'),
+          $arguments = @(
+            "/in", ('"' + $source + '"'),
             "/out", ('"' + $output + '"'),
-            "/base",('"' + $base + '"')
+            "/base", ('"' + $base + '"')
           )
-
-          $process = Start-Process -FilePath $compiler -ArgumentList $args -Wait -PassThru
-          if ($process.ExitCode -ne 0) {
-            throw "Ahk2Exe failed with exit code $($process.ExitCode)."
-          }
-
-          if (!(Test-Path $output)) {
-            throw "Compilation did not produce DeskHiderPlus.exe."
-          }
-
+          $process = Start-Process -FilePath $compiler -ArgumentList $arguments -WindowStyle Hidden -Wait -PassThru
+          if ($process.ExitCode -ne 0 -or !(Test-Path $output)) { throw "Compilation failed." }
+          $process = Start-Process -FilePath $output -ArgumentList "/ErrorStdOut", "/validate" -WindowStyle Hidden -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "Standalone EXE validation failed." }
           $hash = (Get-FileHash $output -Algorithm SHA256).Hash.ToLowerInvariant()
-          Write-Host "DeskHiderPlus.exe SHA256: $hash"
-          Write-Host "Expected tested SHA256: $env:EXPECTED_EXE_SHA256"
-          if ($hash -ne $env:EXPECTED_EXE_SHA256) {
-            throw "The formal release build does not match the user-tested beta 2 binary."
-          }
+          "$hash  DeskHiderPlus.exe" | Out-File -FilePath SHA256SUMS.txt -Encoding ascii
           "EXE_SHA256=$hash" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-      - name: Publish v1.1.0 release
+      - name: Keep verified build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: DeskHiderPlus-verified
+          path: |
+            DeskHiderPlus.exe
+            SHA256SUMS.txt
+
+      - name: Publish repair candidate
+        if: github.event_name != 'pull_request'
         shell: powershell
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          $ErrorActionPreference = "Stop"
+          if ($env:EXE_SHA256 -ne $env:EXPECTED_EXE_SHA256) {
+            throw "Release build differs from the locally verified binary. Refusing to publish."
+          }
           $notes = @"
-          DeskHider Plus v1.1.0
+          DeskHider Plus v1.1.1 beta 1 - shortcut overlay repair
 
-          Changes:
-          - English-only user interface.
-          - Optional tray icon.
-          - The tray icon can be hidden while the app keeps running.
-          - Launch DeskHiderPlus.exe again to restore a hidden tray icon.
-          - Hidden-tray recovery now uses direct IPC to the resident AutoHotkey window for better Windows 10 reliability.
-          - No additional polling, service, or permanent process was added.
-          - This formal build is byte-for-byte identical to the user-tested beta 2 binary.
+          - Replaces the all-zero-alpha 32bpp overlay with a 1bpp AND/XOR-mask ICO at ten sizes.
+          - Detects and migrates both blank.ico and blank_v3.ico, preserving the original setting backup.
+          - Adds Hide / repair shortcut arrows so an existing setting can be reapplied.
+          - Uses atomic icon replacement, checks every frame with Windows LoadImage, and invalidates icon caches once after the requested Explorer restart.
+          - No logon delay, background polling, service or extra resident process.
+
+          Upgrade: exit the old resident app, replace the EXE at the same path, launch it and accept Repair it now? (or choose Hide / repair shortcut arrows). Approve the administrator prompt. Explorer will restart and open File Explorer windows may close.
+
+          Validation: 32-bit and 64-bit registry regression tests, ICO structure checks, native pixel comparisons and image-list cache round-trips pass. Cold-boot behavior on the affected Windows 10 machine still needs user verification; this is a prerelease and v1.1.0 remains stable.
 
           SHA-256:
           $env:EXE_SHA256
           "@
-
-          gh release edit $env:RELEASE_TAG --title "DeskHider Plus v1.1.0" --notes $notes --prerelease=false --draft=false --latest
-          if ($LASTEXITCODE -ne 0) {
-            throw "Failed to finalize the v1.1.0 release metadata."
+          $notes | Out-File -FilePath release-notes.md -Encoding utf8
+          gh release view $env:RELEASE_TAG *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release edit $env:RELEASE_TAG --title "DeskHider Plus v1.1.1 beta 1" --notes-file release-notes.md --prerelease --latest=false
+            if ($LASTEXITCODE -ne 0) { throw "Failed to update candidate release metadata." }
+            gh release upload $env:RELEASE_TAG DeskHiderPlus.exe SHA256SUMS.txt --clobber
+          } else {
+            gh release create $env:RELEASE_TAG DeskHiderPlus.exe SHA256SUMS.txt --target $env:GITHUB_SHA --title "DeskHider Plus v1.1.1 beta 1" --notes-file release-notes.md --prerelease --latest=false
           }
-
-          gh release upload $env:RELEASE_TAG DeskHiderPlus.exe --clobber
-
-          if ($LASTEXITCODE -ne 0) {
-            throw "GitHub release publishing failed."
-          }
+          if ($LASTEXITCODE -ne 0) { throw "Candidate release publishing failed." }

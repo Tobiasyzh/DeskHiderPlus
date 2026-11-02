@@ -16,7 +16,7 @@ The shortcut-arrow feature does **not** poll in the background. It only updates 
 - Double-clicking an icon itself is not treated as an empty-desktop double click.
 - Hide shortcut arrows using `Shell Icons\\29`.
 - Restore the previous `Shell Icons\\29` value safely.
-- Uses a classic transparent BMP/DIB ICO to avoid the black-square overlay issue seen on some Windows 10 builds.
+- Uses a multi-size **1bpp mask-only ICO**, without an alpha channel, to avoid black squares or missing lower-left corners caused by 32bpp transparent overlays on affected systems.
 - Requests administrator privileges only for hide/restore shortcut-arrow actions.
 - Optional startup toggle from the tray menu.
 - Optional tray icon. Hide it after setup for a cleaner notification area.
@@ -26,9 +26,31 @@ The shortcut-arrow feature does **not** poll in the background. It only updates 
 
 ## Download
 
+### v1.1.1 beta 1 — shortcut overlay repair
+
+[Download v1.1.1 beta 1](https://github.com/Tobiasyzh/DeskHiderPlus/releases/tag/v1.1.1-beta.1)
+
+This candidate replaces the single-size, all-zero-alpha `blank_v3.ico` with a monochrome AND/XOR-mask icon in ten sizes (16–256 px). It also detects v3 settings during upgrade, allows reapplying the repair from the tray, and invalidates composed icon caches once after the requested Explorer restart.
+
+The icon format, native Windows rendering, image-list cache round-trip, and isolated registry migration/restore tests pass. **Cold-boot behavior on the affected Windows 10 machine still needs user verification**, so v1.1.0 remains the stable release.
+
+SHA-256 (`DeskHiderPlus.exe`, 1,241,600 bytes):
+
+```text
+1dcec7349fc2337bfbd1d4e96e0177e0b3367b743bc968dc24ad62ac9fc73478
+```
+
+#### Upgrading from v1.0.0 / v1.1.0
+
+1. If the tray icon is hidden, run the old EXE again to show it, then choose **Exit**.
+2. Replace the old `DeskHiderPlus.exe` with the new download in the same folder. Keeping the path preserves the existing startup entry.
+3. Launch the new EXE and accept **Repair it now?**, then approve the administrator prompt. Alternatively choose **Tray → Hide / repair shortcut arrows**.
+4. Explorer restarts once; open File Explorer windows may close. The original arrow setting remains available through **Restore shortcut arrows**.
+5. Restart Windows and check the desktop immediately after sign-in, including small/medium/large icon sizes. Simply downloading the EXE does not replace the existing system overlay; step 3 is required.
+
 ### v1.1.0
 
-The current stable release adds the optional tray icon, switches the user interface to English, and includes reliable hidden-tray recovery on Windows 10 by signaling the already-running instance directly.
+The stable v1.1.0 release adds the optional tray icon, switches the user interface to English, and includes reliable hidden-tray recovery on Windows 10 by signaling the already-running instance directly. It uses the older 32bpp shortcut overlay.
 
 [Download v1.1.0](https://github.com/Tobiasyzh/DeskHiderPlus/releases/tag/v1.1.0)
 
@@ -63,6 +85,8 @@ SHA-256:
 
 AutoHotkey does not need to be installed system-wide.
 
+Keep the `lib` folder alongside `DeskHiderPlus.ahk` when building or running the source. The compiled EXE remains standalone.
+
 The build script verifies the AutoHotkey archive against:
 
 ```text
@@ -74,7 +98,7 @@ The build script verifies the AutoHotkey archive against:
 Run `DeskHiderPlus.exe`.
 
 - **Desktop:** double-click an empty area to hide/show desktop icons.
-- **Tray → Hide shortcut arrows:** hide shortcut arrows. Windows will request administrator approval and Explorer will restart.
+- **Tray → Hide / repair shortcut arrows:** hide shortcut arrows or recreate the current transparent overlay. Windows will request administrator approval and Explorer will restart.
 - **Tray → Restore shortcut arrows:** restore the shortcut-arrow setting that existed before DeskHider Plus changed it.
 - **Tray → Run at startup:** enable/disable startup with Windows.
 - **Tray → Show tray icon:** uncheck this to hide the tray icon while keeping DeskHider Plus running.
@@ -87,10 +111,26 @@ When `Show tray icon` is unchecked, DeskHider Plus keeps running normally and de
 When shortcut arrows are hidden, the transparent overlay file is stored at:
 
 ```text
-C:\ProgramData\DeskHiderPlus\blank_v3.ico
+%ProgramData%\DeskHiderPlus\blank_v4_mask.ico
 ```
 
 Do not delete that file while the shortcut-arrow setting is active. Use the tray restore command first if you want to return to the Windows default.
+
+The setting is applied before Explorer restarts and persists across logons; the resident app does not generate the overlay during startup. Old `blank.ico` / `blank_v3.ico` files may remain until Restore, because a running shell can still hold references to them.
+
+## Verification
+
+With the official AutoHotkey v1.1.37.02 portable package available, run the following from the repository in PowerShell (replace the interpreter path):
+
+```powershell
+$output = Join-Path $PWD '项目辅助文件\overlay-tests'
+New-Item -ItemType Directory -Force $output | Out-Null
+& 'path\to\AutoHotkeyU64.exe' /ErrorStdOut .\tests\ShortcutArrows.test.ahk $output
+python .\tests\verify_overlay.py (Join-Path $output 'blank_v4_mask.ico')
+.\DeskHiderPlus.exe /validate
+```
+
+Repeat the AHK suite with `AutoHotkeyU32.exe` to exercise the 32-bit registry-view path. Tests use temporary `HKCU\Software\DeskHiderPlus_Test_<PID>` keys and files under the chosen output directory, then clean up. They do not change the real Explorer settings or restart the desktop. The Python test verifies every ICO frame and checks that drawing, overlay composition, scaling, and image-list serialization preserve the underlying icon's RGB pixels at 16 sizes.
 
 ## Resource usage
 

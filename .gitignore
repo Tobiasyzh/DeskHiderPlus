@@ -1,6 +1,7 @@
 # Local build output
 DeskHiderPlus.exe
 build_log.txt
+项目辅助文件/
 
 # Downloaded / packaged artifacts
 *.zip
@@ -15,3 +16,5 @@ Desktop.ini
 *~
 .vscode/
 .idea/
+__pycache__/
+*.pyc
