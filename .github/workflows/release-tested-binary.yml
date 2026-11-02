@@ -131,8 +131,11 @@ jobs:
           $env:EXE_SHA256
           "@
           $notes | Out-File -FilePath release-notes.md -Encoding utf8
-          gh release view $env:RELEASE_TAG *> $null
-          if ($LASTEXITCODE -eq 0) {
+          # A missing release is expected on first publication. In Windows
+          # PowerShell, redirected native stderr would otherwise throw before
+          # the exit code can be checked with ErrorActionPreference=Stop.
+          $lookup = Start-Process -FilePath "gh" -ArgumentList "release", "view", $env:RELEASE_TAG -WindowStyle Hidden -Wait -PassThru -RedirectStandardOutput release-lookup.log -RedirectStandardError release-lookup-error.log
+          if ($lookup.ExitCode -eq 0) {
             gh release edit $env:RELEASE_TAG --title "DeskHider Plus v1.1.1 beta 1" --notes-file release-notes.md --prerelease --latest=false
             if ($LASTEXITCODE -ne 0) { throw "Failed to update candidate release metadata." }
             gh release upload $env:RELEASE_TAG DeskHiderPlus.exe SHA256SUMS.txt --clobber
