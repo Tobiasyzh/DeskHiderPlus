@@ -4,7 +4,7 @@
 SendMode, Input
 SetWorkingDir, %A_ScriptDir%
 
-; DeskHider Plus v1.1.1 beta 1 (mask-only shortcut overlays + v3 migration)
+; DeskHider Plus v1.1.1 (complete standalone application)
 ; Based on DeskHider by Ian Div (MIT License):
 ; https://github.com/iandiv/DeskHider
 ; Original desktop-icon hit-test logic credited by DeskHider to iPhilip.

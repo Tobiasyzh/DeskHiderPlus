@@ -26,13 +26,15 @@ The shortcut-arrow feature does **not** poll in the background. It only updates 
 
 ## Download
 
-### v1.1.1 beta 1 — shortcut overlay repair
+### v1.1.1 — complete standalone application
 
-[Download v1.1.1 beta 1](https://github.com/Tobiasyzh/DeskHiderPlus/releases/tag/v1.1.1-beta.1)
+[Download DeskHiderPlus.exe](https://github.com/Tobiasyzh/DeskHiderPlus/releases/download/v1.1.1/DeskHiderPlus.exe) · [Release notes](https://github.com/Tobiasyzh/DeskHiderPlus/releases/tag/v1.1.1)
 
-This candidate replaces the single-size, all-zero-alpha `blank_v3.ico` with a monochrome AND/XOR-mask icon in ten sizes (16–256 px). It also detects v3 settings during upgrade, allows reapplying the repair from the tray, and invalidates composed icon caches once after the requested Explorer restart.
+**Download only `DeskHiderPlus.exe`. This is the complete program, including all desktop, tray, startup and shortcut-arrow features. No previous EXE, separate patch, AutoHotkey installation or extra resource download is required.**
 
-The icon format, native Windows rendering, image-list cache round-trip, and isolated registry migration/restore tests pass. **Cold-boot behavior on the affected Windows 10 machine still needs user verification**, so v1.1.0 remains the stable release.
+v1.1.1 includes the updated shortcut overlay: a monochrome AND/XOR-mask icon in ten sizes (16–256 px), migration of older settings, and a one-time cache notification after a requested Explorer restart. The overlay is embedded in the EXE and generated locally when the feature is enabled.
+
+The icon format, native Windows rendering, image-list cache round-trip, and isolated registry migration/restore tests pass. The original machine's cold-boot appearance still needs verification.
 
 SHA-256 (`DeskHiderPlus.exe`, 1,241,600 bytes):
 
@@ -40,17 +42,15 @@ SHA-256 (`DeskHiderPlus.exe`, 1,241,600 bytes):
 1dcec7349fc2337bfbd1d4e96e0177e0b3367b743bc968dc24ad62ac9fc73478
 ```
 
-#### Upgrading from v1.0.0 / v1.1.0
+#### Install or update
 
-1. If the tray icon is hidden, run the old EXE again to show it, then choose **Exit**.
-2. Replace the old `DeskHiderPlus.exe` with the new download in the same folder. Keeping the path preserves the existing startup entry.
-3. Launch the new EXE and accept **Repair it now?**, then approve the administrator prompt. Alternatively choose **Tray → Hide / repair shortcut arrows**.
-4. Explorer restarts once; open File Explorer windows may close. The original arrow setting remains available through **Restore shortcut arrows**.
-5. Restart Windows and check the desktop immediately after sign-in, including small/medium/large icon sizes. Simply downloading the EXE does not replace the existing system overlay; step 3 is required.
+1. Download the single EXE above to a permanent folder and run it. First-time users can use it immediately.
+2. If updating an existing installation, exit its running instance and replace its EXE at the same path to preserve the startup entry. There is no need to download an older version.
+3. On systems with an older shortcut-arrow setting, the new program offers to update that setting. Confirm the prompt and administrator request. This happens entirely inside the new EXE; Explorer restarts once and open File Explorer windows may close.
 
 ### v1.1.0
 
-The stable v1.1.0 release adds the optional tray icon, switches the user interface to English, and includes reliable hidden-tray recovery on Windows 10 by signaling the already-running instance directly. It uses the older 32bpp shortcut overlay.
+This older release adds the optional tray icon, switches the user interface to English, and includes reliable hidden-tray recovery on Windows 10 by signaling the already-running instance directly. It uses the older 32bpp shortcut overlay. New users should download v1.1.1 above.
 
 [Download v1.1.0](https://github.com/Tobiasyzh/DeskHiderPlus/releases/tag/v1.1.0)
 

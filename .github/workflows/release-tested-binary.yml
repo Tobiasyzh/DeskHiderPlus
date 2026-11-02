@@ -23,7 +23,7 @@ jobs:
       contents: write
     env:
       AHK_ZIP_SHA256: "6F3663F7CDD25063C8C8728F5D9B07813CED8780522FD1F124BA539E2854215F"
-      RELEASE_TAG: "v1.1.1-beta.1"
+      RELEASE_TAG: "v1.1.1"
       EXPECTED_EXE_SHA256: "1dcec7349fc2337bfbd1d4e96e0177e0b3367b743bc968dc24ad62ac9fc73478"
 
     steps:
@@ -104,7 +104,7 @@ jobs:
             DeskHiderPlus.exe
             SHA256SUMS.txt
 
-      - name: Publish repair candidate
+      - name: Publish complete v1.1.1 release
         if: github.event_name != 'pull_request'
         shell: powershell
         env:
@@ -115,7 +115,16 @@ jobs:
             throw "Release build differs from the locally verified binary. Refusing to publish."
           }
           $notes = @"
-          DeskHider Plus v1.1.1 beta 1 - shortcut overlay repair
+          DeskHider Plus v1.1.1 - complete standalone application
+
+          Download only DeskHiderPlus.exe. It contains the complete application and all resources. No previous version, separate patch, AutoHotkey installation or additional resource file is required.
+
+          Included features:
+          - Double-click empty desktop space to hide or show icons.
+          - Hide or restore shortcut arrows.
+          - Optional Windows startup and tray icon, including hidden-tray recovery.
+
+          Changes in v1.1.1:
 
           - Replaces the all-zero-alpha 32bpp overlay with a 1bpp AND/XOR-mask ICO at ten sizes.
           - Detects and migrates both blank.ico and blank_v3.ico, preserving the original setting backup.
@@ -123,9 +132,9 @@ jobs:
           - Uses atomic icon replacement, checks every frame with Windows LoadImage, and invalidates icon caches once after the requested Explorer restart.
           - No logon delay, background polling, service or extra resident process.
 
-          Upgrade: exit the old resident app, replace the EXE at the same path, launch it and accept Repair it now? (or choose Hide / repair shortcut arrows). Approve the administrator prompt. Explorer will restart and open File Explorer windows may close.
+          Install: download DeskHiderPlus.exe to a permanent folder and run it. Existing users can exit the running app and replace its EXE at the same path. The new EXE handles older shortcut-arrow settings internally; accept its update prompt if shown. Explorer will restart and open File Explorer windows may close when applying those settings.
 
-          Validation: 32-bit and 64-bit registry regression tests, ICO structure checks, native pixel comparisons and image-list cache round-trips pass. Cold-boot behavior on the affected Windows 10 machine still needs user verification; this is a prerelease and v1.1.0 remains stable.
+          Validation: 32-bit and 64-bit registry regression tests, ICO structure checks, native pixel comparisons and image-list cache round-trips pass. Cold-boot behavior on the original affected Windows 10 machine has not yet been verified.
 
           SHA-256:
           $env:EXE_SHA256
@@ -136,10 +145,10 @@ jobs:
           # the exit code can be checked with ErrorActionPreference=Stop.
           $lookup = Start-Process -FilePath "gh" -ArgumentList "release", "view", $env:RELEASE_TAG -WindowStyle Hidden -Wait -PassThru -RedirectStandardOutput release-lookup.log -RedirectStandardError release-lookup-error.log
           if ($lookup.ExitCode -eq 0) {
-            gh release edit $env:RELEASE_TAG --title "DeskHider Plus v1.1.1 beta 1" --notes-file release-notes.md --prerelease --latest=false
-            if ($LASTEXITCODE -ne 0) { throw "Failed to update candidate release metadata." }
+            gh release edit $env:RELEASE_TAG --title "DeskHider Plus v1.1.1" --notes-file release-notes.md --prerelease=false --draft=false --latest
+            if ($LASTEXITCODE -ne 0) { throw "Failed to update release metadata." }
             gh release upload $env:RELEASE_TAG DeskHiderPlus.exe SHA256SUMS.txt --clobber
           } else {
-            gh release create $env:RELEASE_TAG DeskHiderPlus.exe SHA256SUMS.txt --target $env:GITHUB_SHA --title "DeskHider Plus v1.1.1 beta 1" --notes-file release-notes.md --prerelease --latest=false
+            gh release create $env:RELEASE_TAG DeskHiderPlus.exe SHA256SUMS.txt --target $env:GITHUB_SHA --title "DeskHider Plus v1.1.1" --notes-file release-notes.md --prerelease=false --latest
           }
-          if ($LASTEXITCODE -ne 0) { throw "Candidate release publishing failed." }
+          if ($LASTEXITCODE -ne 0) { throw "Release publishing failed." }
