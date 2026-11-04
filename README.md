@@ -9,6 +9,8 @@ It combines two small desktop-cleanup features in one resident utility:
 
 The shortcut-arrow feature does **not** poll in the background. It only updates the Windows shell setting when you explicitly choose the tray command. Normal resident work is limited to the desktop double-click listener.
 
+**v2.0** fixes incorrect shortcut overlays and missing lower-left icon regions on the affected Windows 10 desktop. The user has confirmed the test2 implementation works; v2.0 keeps that implementation and updates the version identifiers. It uses an ARGB resource with a minimal alpha anchor, validates both color and opacity, and archives and rebuilds icon caches when applying a repair. Each launch performs one health check when its overlay is configured; there is no polling timer.
+
 ## Features
 
 - Windows 10 focused.
@@ -16,7 +18,9 @@ The shortcut-arrow feature does **not** poll in the background. It only updates 
 - Double-clicking an icon itself is not treated as an empty-desktop double click.
 - Hide shortcut arrows using `Shell Icons\\29`.
 - Restore the previous `Shell Icons\\29` value safely.
-- Uses a multi-size **1bpp mask-only ICO**, without an alpha channel, to avoid black squares or missing lower-left corners caused by 32bpp transparent overlays on affected systems.
+- Archive and rebuild icon caches when applying or restoring the setting, with explicit errors for locked caches.
+- Validate the restored Shell overlay rather than treating an existing ICO as proof of visual health.
+- Uses ARGB with a minimal nonzero alpha anchor and matching masks to preserve the underlying icon's opacity.
 - Requests administrator privileges only for hide/restore shortcut-arrow actions.
 - Optional startup toggle from the tray menu.
 - Optional tray icon. Hide it after setup for a cleaner notification area.
@@ -26,20 +30,20 @@ The shortcut-arrow feature does **not** poll in the background. It only updates 
 
 ## Download
 
-### v1.1.1 — complete standalone application
+### v2.0 — current stable release
 
-[Download DeskHiderPlus.exe](https://github.com/Tobiasyzh/DeskHiderPlus/releases/download/v1.1.1/DeskHiderPlus.exe) · [Release notes](https://github.com/Tobiasyzh/DeskHiderPlus/releases/tag/v1.1.1)
+[Download DeskHiderPlus.exe](https://github.com/Tobiasyzh/DeskHiderPlus/releases/download/v2.0/DeskHiderPlus.exe) · [Release notes](https://github.com/Tobiasyzh/DeskHiderPlus/releases/tag/v2.0)
 
 **Download only `DeskHiderPlus.exe`. This is the complete program, including all desktop, tray, startup and shortcut-arrow features. No previous EXE, separate patch, AutoHotkey installation or extra resource download is required.**
 
-v1.1.1 includes the updated shortcut overlay: a monochrome AND/XOR-mask icon in ten sizes (16–256 px), migration of older settings, and a one-time cache notification after a requested Explorer restart. The overlay is embedded in the EXE and generated locally when the feature is enabled.
+v2.0 includes an ARGB overlay in 23 sizes (16–256px), including 60px for 125% scaling, matching masks and a minimal nonzero-alpha anchor. It checks the restored system image lists, preserves destination opacity, rebuilds caches with backups, and attempts to restore the original arrows if validation fails. The resource is generated locally by the standalone EXE.
 
-The icon format, native Windows rendering, image-list cache round-trip, and isolated registry migration/restore tests pass. The original machine's cold-boot appearance still needs verification.
+The affected Windows 10 user has confirmed this implementation works. Isolated 32/64-bit tests, native RGBA composition and image-list cache round-trips also pass. See [RELEASE_NOTES.md](RELEASE_NOTES.md) for details.
 
-SHA-256 (`DeskHiderPlus.exe`, 1,241,600 bytes):
+SHA-256 (`DeskHiderPlus.exe`, 1,253,376 bytes):
 
 ```text
-1dcec7349fc2337bfbd1d4e96e0177e0b3367b743bc968dc24ad62ac9fc73478
+2c5171ea2d9b2425d82a92ed5e483a9d99521cc4ad6b5dd0d33cbf6db7040139
 ```
 
 #### Install or update
@@ -48,9 +52,13 @@ SHA-256 (`DeskHiderPlus.exe`, 1,241,600 bytes):
 2. If updating an existing installation, exit its running instance and replace its EXE at the same path to preserve the startup entry. There is no need to download an older version.
 3. On systems with an older shortcut-arrow setting, the new program offers to update that setting. Confirm the prompt and administrator request. This happens entirely inside the new EXE; Explorer restarts once and open File Explorer windows may close.
 
+### v1.1.1
+
+[Older release](https://github.com/Tobiasyzh/DeskHiderPlus/releases/tag/v1.1.1). Its monochrome overlay can produce incorrect or cut-out icons after sign-in. Use v2.0 above.
+
 ### v1.1.0
 
-This older release adds the optional tray icon, switches the user interface to English, and includes reliable hidden-tray recovery on Windows 10 by signaling the already-running instance directly. It uses the older 32bpp shortcut overlay. New users should download v1.1.1 above.
+This older release adds the optional tray icon, switches the user interface to English, and includes reliable hidden-tray recovery on Windows 10 by signaling the already-running instance directly. It uses the older 32bpp shortcut overlay. New users should download v2.0 above.
 
 [Download v1.1.0](https://github.com/Tobiasyzh/DeskHiderPlus/releases/tag/v1.1.0)
 
@@ -85,7 +93,7 @@ SHA-256:
 
 AutoHotkey does not need to be installed system-wide.
 
-Keep the `lib` folder alongside `DeskHiderPlus.ahk` when building or running the source. The compiled EXE remains standalone.
+Keep the `lib` and `tools` folders alongside the source when building. `Build.cmd` normalizes unused version-resource padding left by the compiler so local and GitHub builds have matching hashes. The compiled EXE remains standalone.
 
 The build script verifies the AutoHotkey archive against:
 
@@ -100,6 +108,7 @@ Run `DeskHiderPlus.exe`.
 - **Desktop:** double-click an empty area to hide/show desktop icons.
 - **Tray → Hide / repair shortcut arrows:** hide shortcut arrows or recreate the current transparent overlay. Windows will request administrator approval and Explorer will restart.
 - **Tray → Restore shortcut arrows:** restore the shortcut-arrow setting that existed before DeskHider Plus changed it.
+- **Tray → Rebuild icon cache:** archive and rebuild only this user's icon cache databases. Thumbnail caches and shortcut files are preserved.
 - **Tray → Run at startup:** enable/disable startup with Windows.
 - **Tray → Show tray icon:** uncheck this to hide the tray icon while keeping DeskHider Plus running.
 - **Tray → Exit:** exit the resident utility.
@@ -111,26 +120,31 @@ When `Show tray icon` is unchecked, DeskHider Plus keeps running normally and de
 When shortcut arrows are hidden, the transparent overlay file is stored at:
 
 ```text
-%ProgramData%\DeskHiderPlus\blank_v4_mask.ico
+%ProgramData%\DeskHiderPlus\blank_v6_argb.ico
 ```
 
 Do not delete that file while the shortcut-arrow setting is active. Use the tray restore command first if you want to return to the Windows default.
 
-The setting is applied before Explorer restarts and persists across logons; the resident app does not generate the overlay during startup. Old `blank.ico` / `blank_v3.ico` files may remain until Restore, because a running shell can still hold references to them.
+The setting is applied before Explorer restarts and persists across logons. Old `blank.ico`, `blank_v3.ico`, `blank_v4_mask.ico` and `blank_v5_mask.ico` files are retained because running shell processes may still hold references to them. Restore removes the setting and backup marker, and leaves the inactive resources in place.
+
+Recovery logs and archived icon cache databases are saved beside the EXE under `项目辅助文件\图标修复备份\<timestamp-pid>`. A writable permanent program folder is required. The resident application runs without elevation; the short-lived registry helper alone requests administrator permission. A failed or cancelled recovery is reported and is never shown as successful. Ordinary UAC shields belonging to applications are preserved.
 
 ## Verification
 
 With the official AutoHotkey v1.1.37.02 portable package available, run the following from the repository in PowerShell (replace the interpreter path):
 
 ```powershell
-$output = Join-Path $PWD '项目辅助文件\overlay-tests'
+$output = Join-Path $PWD '项目辅助文件\2026-11-03_修复快捷方式覆盖与缓存\验证输出\manual-tests'
 New-Item -ItemType Directory -Force $output | Out-Null
 & 'path\to\AutoHotkeyU64.exe' /ErrorStdOut .\tests\ShortcutArrows.test.ahk $output
-python .\tests\verify_overlay.py (Join-Path $output 'blank_v4_mask.ico')
+python .\tests\verify_overlay.py (Join-Path $output 'blank_v6_argb.ico')
+& 'path\to\AutoHotkeyU64.exe' /ErrorStdOut .\tests\ShellIconCache.test.ahk (Join-Path $output 'cache-tests')
 .\DeskHiderPlus.exe /validate
 ```
 
-Repeat the AHK suite with `AutoHotkeyU32.exe` to exercise the 32-bit registry-view path. Tests use temporary `HKCU\Software\DeskHiderPlus_Test_<PID>` keys and files under the chosen output directory, then clean up. They do not change the real Explorer settings or restart the desktop. The Python test verifies every ICO frame and checks that drawing, overlay composition, scaling, and image-list serialization preserve the underlying icon's RGB pixels at 16 sizes.
+Repeat the AHK suite with `AutoHotkeyU32.exe` to exercise the 32-bit registry-view path. Tests use temporary `HKCU\Software\DeskHiderPlus_Test_<PID>` keys and files under the chosen output directory, then clean up. They do not change the real Explorer settings or restart the desktop. The Python test checks every ICO frame, verifies exact preservation of opaque destination alpha and bounded RGB differences, and exercises extraction, overlay composition, scaling and image-list serialization at 32 sizes.
+
+`ShellIconCache.test.ahk` also checks cache-file selection, preservation of unrelated files, locked-file failure, non-overwriting backups, helper exit codes/timeouts, and native Shell positive/negative controls including the failed monochrome mask. Its Shell children redirect registry reads only inside the test process. `/verifyoverlay` is a read-only diagnostic entry point: exit 0 means the restored overlay preserves alpha and meets RGB bounds at all four system sizes; 41 means it fails this check; 42 means validation could not run. The caller returns 43 if its helper times out. It is meaningful for the configured hidden-arrow overlay, not the normal visible Windows arrow. The affected Windows 10 user has confirmed the test2 implementation used for v2.0 works.
 
 ## Resource usage
 

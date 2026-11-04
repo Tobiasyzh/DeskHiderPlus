@@ -53,7 +53,8 @@ HideShortcutArrowsAdmin()
         return 26
     }
 
-    ; Retain old files until Restore: a running shell may still reference them.
+    ; Changing the file is not enough: the caller must rebuild the user's
+    ; icon cache and verify the restored system image list in a fresh process.
     RestoreDefaultRegistryView()
     return 0
 }
@@ -113,11 +114,9 @@ RestoreShortcutArrowsAdmin()
         }
     }
 
-    ; Only clean up after the shell no longer points to an icon we will delete.
+    ; A running shell may still have these files open. Keep the small inactive
+    ; resources: removing them before the cache transition creates a broken path.
     RegDelete, %APP_REG_KEY%
-    for _, iconPath in OWNED_ICON_PATHS
-        FileDelete, %iconPath%
-    FileRemoveDir, %BLANK_ICON_DIR%
 
     RestoreDefaultRegistryView()
     return 0
@@ -149,7 +148,7 @@ IsLegacyOverlayActive()
         && (currentValue != OVERLAY_VALUE || !FileExist(BLANK_ICON_PATH)))
 }
 
-IsArrowsHiddenByUs()
+IsArrowsConfiguredByUs()
 {
     global SHELL_ICONS_KEY, OVERLAY_VALUE, BLANK_ICON_PATH
 
@@ -161,15 +160,24 @@ IsArrowsHiddenByUs()
     return (!err && currentValue = OVERLAY_VALUE && FileExist(BLANK_ICON_PATH))
 }
 
+GetOverlayIconSizes()
+{
+    ; Include common scaled desktop sizes (notably 60px at 125% DPI).
+    return [16, 20, 24, 28, 32, 36, 40, 48, 56, 60, 64, 72, 80, 96
+        , 112, 120, 128, 144, 160, 192, 224, 240, 256]
+}
+
 BuildTransparentIcon(ByRef data)
 {
-    ; No alpha channel: (destination AND 1) XOR 0 leaves every pixel intact.
-    ; A 32bpp all-zero alpha image can take different shell compositing paths.
-    ; https://devblogs.microsoft.com/oldnewthing/20101019-00/?p=12503
-    sizes := [16, 20, 24, 32, 40, 48, 64, 96, 128, 256]
+    ; A fully empty legacy mask can preserve RGB while clearing destination
+    ; alpha, cutting a rectangle out of an icon during later composition.
+    ; Use explicit ARGB with a tiny alpha=1 anchor patch and a matching AND
+    ; mask. A patch survives DPI resampling which can discard a single pixel.
+    ; This preserves destination alpha with RGB changes of at most one level.
+    sizes := GetOverlayIconSizes()
     totalSize := 6 + sizes.Length() * 16
     for _, size in sizes
-        totalSize += 48 + 2 * (((size + 31) // 32) * 4) * size
+        totalSize += 40 + size * size * 4 + ((size + 31) // 32) * 4 * size
 
     VarSetCapacity(data, totalSize, 0)
     NumPut(1, data, 2, "UShort") ; ICONDIR.type = icon
@@ -178,15 +186,14 @@ BuildTransparentIcon(ByRef data)
 
     for index, size in sizes
     {
-        stride := ((size + 31) // 32) * 4
-        bitmapSize := stride * size
-        imageSize := 48 + 2 * bitmapSize
+        colorSize := size * size * 4
+        maskSize := ((size + 31) // 32) * 4 * size
+        imageSize := 40 + colorSize + maskSize
         entry := 6 + (index - 1) * 16
         NumPut(Mod(size, 256), data, entry, "UChar")
         NumPut(Mod(size, 256), data, entry + 1, "UChar")
-        NumPut(2, data, entry + 2, "UChar") ; two palette entries
         NumPut(1, data, entry + 4, "UShort")
-        NumPut(1, data, entry + 6, "UShort") ; 1bpp, no RGB/alpha ambiguity
+        NumPut(32, data, entry + 6, "UShort")
         NumPut(imageSize, data, entry + 8, "UInt")
         NumPut(imageOffset, data, entry + 12, "UInt")
 
@@ -194,13 +201,23 @@ BuildTransparentIcon(ByRef data)
         NumPut(size, data, imageOffset + 4, "Int")
         NumPut(size * 2, data, imageOffset + 8, "Int") ; XOR + AND height
         NumPut(1, data, imageOffset + 12, "UShort")
-        NumPut(1, data, imageOffset + 14, "UShort")
-        NumPut(bitmapSize * 2, data, imageOffset + 20, "UInt")
-        NumPut(2, data, imageOffset + 32, "UInt")
-        NumPut(0x00FFFFFF, data, imageOffset + 44, "UInt") ; black/white palette
-        ; XOR bitmap is already zero; AND bitmap (including padding) is all ones.
-        DllCall("RtlFillMemory", "Ptr", &data + imageOffset + 48 + bitmapSize
-            , "UPtr", bitmapSize, "UChar", 255)
+        NumPut(32, data, imageOffset + 14, "UShort")
+        NumPut(colorSize + maskSize, data, imageOffset + 20, "UInt")
+        DllCall("RtlFillMemory", "Ptr", &data + imageOffset + 40 + colorSize
+            , "UPtr", maskSize, "UChar", 255)
+        anchor := Max(2, Ceil(size / 16))
+        maskStride := ((size + 31) // 32) * 4
+        Loop, %anchor%
+        {
+            y := A_Index - 1
+            Loop, %anchor%
+            {
+                x := A_Index - 1
+                NumPut(1, data, imageOffset + 40 + (y * size + x) * 4 + 3, "UChar")
+                byteOffset := imageOffset + 40 + colorSize + y * maskStride + x // 8
+                NumPut(NumGet(data, byteOffset, "UChar") & ~(0x80 >> Mod(x, 8)), data, byteOffset, "UChar")
+            }
+        }
         imageOffset += imageSize
     }
     return totalSize
@@ -220,7 +237,7 @@ WriteTransparentIcon(filePath)
     valid := (written = binarySize)
     if (valid)
     {
-        for _, size in [16, 20, 24, 32, 40, 48, 64, 96, 128, 256]
+        for _, size in GetOverlayIconSizes()
         {
             icon := DllCall("LoadImageW", "Ptr", 0, "WStr", tempPath, "UInt", 1
                 , "Int", size, "Int", size, "UInt", 0x10, "Ptr") ; LR_LOADFROMFILE

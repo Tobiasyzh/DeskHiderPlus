@@ -11,7 +11,8 @@ import struct
 import sys
 
 
-SIZES = (16, 20, 24, 32, 40, 48, 64, 96, 128, 256)
+SIZES = (16, 20, 24, 28, 32, 36, 40, 48, 56, 60, 64, 72, 80, 96,
+         112, 120, 128, 144, 160, 192, 224, 240, 256)
 
 
 def verify_format(path):
@@ -22,18 +23,25 @@ def verify_format(path):
         width, height, colors, reserved, planes, bpp, length, offset = struct.unpack_from(
             '<BBBBHHII', data, 6 + i * 16)
         assert (width or 256, height or 256, colors, reserved, planes, bpp) == (
-            size, size, 2, 0, 1, 1)
-        stride = ((size + 31) // 32) * 4
-        bitmap_size = stride * size
-        assert offset == end and length == 48 + 2 * bitmap_size
+            size, size, 0, 0, 1, 32)
+        color_size = size * size * 4
+        mask_size = ((size + 31) // 32) * 4 * size
+        assert offset == end and length == 40 + color_size + mask_size
         assert struct.unpack_from('<IiiHHIIiiII', data, offset) == (
-            40, size, size * 2, 1, 1, 0, 2 * bitmap_size, 0, 0, 2, 0)
-        assert data[offset + 40:offset + 48] == bytes.fromhex('00000000ffffff00')
-        assert data[offset + 48:offset + 48 + bitmap_size] == bytes(bitmap_size)
-        assert data[offset + 48 + bitmap_size:offset + length] == b'\xff' * bitmap_size
+            40, size, size * 2, 1, 32, 0, color_size + mask_size, 0, 0, 0, 0)
+        anchor = max(2, (size + 15) // 16)
+        expected_pixels = bytearray(color_size)
+        expected_mask = bytearray(b'\xff' * mask_size)
+        mask_stride = ((size + 31) // 32) * 4
+        for y in range(anchor):
+            for x in range(anchor):
+                expected_pixels[(y * size + x) * 4 + 3] = 1
+                expected_mask[y * mask_stride + x // 8] &= ~(0x80 >> (x % 8))
+        assert data[offset + 40:offset + 40 + color_size] == expected_pixels
+        assert data[offset + 40 + color_size:offset + length] == expected_mask
         end = offset + length
     assert end == len(data), 'truncated or unexpected trailing data'
-    print(f'PASS: ICO structure, XOR pixels and AND masks at {len(SIZES)} sizes.')
+    print(f'PASS: ARGB structure, nonzero alpha anchor and matching AND masks at {len(SIZES)} sizes.')
 
 
 def bind(dll, name, result, *args):
@@ -67,6 +75,7 @@ class WindowsRenderer:
         self.il_add = bind(comctl, 'ImageList_ReplaceIcon', integer, ptr, integer, ptr)
         self.il_overlay = bind(comctl, 'ImageList_SetOverlayImage', w.BOOL, ptr, integer, integer)
         self.il_draw = bind(comctl, 'ImageList_Draw', w.BOOL, ptr, integer, ptr, integer, integer, uint)
+        self.il_get_icon = bind(comctl, 'ImageList_GetIcon', ptr, ptr, integer, uint)
         self.il_write = bind(comctl, 'ImageList_Write', w.BOOL, ptr, ptr)
         self.il_read = bind(comctl, 'ImageList_Read', ptr, ptr)
         self.stream = bind(ole, 'CreateStreamOnHGlobal', c.c_long, ptr, w.BOOL, c.POINTER(ptr))
@@ -101,14 +110,34 @@ class WindowsRenderer:
                       for i in range(size * size)]
         images = base = restored = None
 
-        def rgb():
+        def rgba():
             self.flush()
-            return [p & 0xffffff for p in pixels]
+            return list(pixels)
+
+        def assert_safe(actual, expected, label):
+            # Tiny anchor blending may change a few RGB values by one level.
+            # Alpha loss is never allowed: that is what created the cut-outs.
+            assert all((a >> 24) == (b >> 24) for a, b in zip(actual, expected)), f'{label}: alpha damaged at {size}px'
+            changed = sum(a != b for a, b in zip(actual, expected))
+            max_changed = max(64, ((size + 15) // 16 + 1) ** 2)
+            assert changed <= max_changed, f'{label}: too many altered pixels at {size}px'
+            assert all(abs(((a >> shift) & 255) - ((b >> shift) & 255)) <= 1
+                       for a, b in zip(actual, expected) for shift in (0, 8, 16)), f'{label}: RGB damaged at {size}px'
+
+        def verify_extracted(image_list):
+            extracted = self.il_get_icon(image_list, 1, 1)
+            assert extracted
+            try:
+                pixels[:] = background
+                assert self.draw(dc, 0, 0, extracted, size, size, 0, None, 3)
+                assert_safe(rgba(), background, 'extracted overlay')
+            finally:
+                self.destroy_icon(extracted)
 
         try:
             pixels[:] = background
             assert self.draw(dc, 0, 0, icon, size, size, 0, None, 3)
-            assert rgb() == [p & 0xffffff for p in background], f'DrawIconEx altered RGB at {size}px'
+            assert_safe(rgba(), background, 'DrawIconEx')
 
             # Patterned opaque base icon, then add the blank as image-list overlay 1.
             xor = b''.join(struct.pack('<I', p ^ 0x00a55aa5) for p in background)
@@ -124,18 +153,20 @@ class WindowsRenderer:
             assert self.il_overlay(images, 1, 1)
             pixels[:] = background
             assert self.il_draw(images, 0, dc, 0, 0, 1)
-            expected = rgb()
-            assert expected != [p & 0xffffff for p in background], 'test base must be visible'
+            expected = rgba()
+            assert expected != background, 'test base must be visible'
             pixels[:] = background
             assert self.il_draw(images, 0, dc, 0, 0, 0x101)
-            assert rgb() == expected, f'overlay damaged the base icon at {size}px'
+            assert_safe(rgba(), expected, 'composed overlay')
+            verify_extracted(images)
 
             # Exercise the image-list persistence path used by icon caches.
             restored = self.round_trip(images)
             assert self.il_overlay(restored, 1, 1)
             pixels[:] = background
             assert self.il_draw(restored, 0, dc, 0, 0, 0x101)
-            assert rgb() == expected, f'cached overlay damaged the base icon at {size}px'
+            assert_safe(rgba(), expected, 'cached overlay')
+            verify_extracted(restored)
         finally:
             for image_list in (restored, images):
                 if image_list:
@@ -153,10 +184,10 @@ def main():
     verify_format(path)
     renderer = WindowsRenderer()
     # Include sizes absent from the ICO to cover Windows' fallback scaling too.
-    sizes = sorted(set(SIZES + (18, 28, 36, 60, 72, 192)))
+    sizes = sorted(set(SIZES + (18, 22, 30, 45, 54, 66, 90, 150, 300)))
     for size in sizes:
         renderer.verify(path, size)
-    print(f'PASS: DrawIconEx, image-list overlay and cache round-trip at {len(sizes)} sizes.')
+    print(f'PASS: RGBA preservation, image-list extraction/composition and cache round-trip at {len(sizes)} sizes.')
 
 
 if __name__ == '__main__':

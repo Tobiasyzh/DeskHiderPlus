@@ -1,10 +1,13 @@
 ﻿#NoEnv
+#NoTrayIcon
 #SingleInstance, Off
 #Persistent
 SendMode, Input
 SetWorkingDir, %A_ScriptDir%
 
-; DeskHider Plus v1.1.1 (complete standalone application)
+; DeskHider Plus v2.0 (based on the user-verified test2 implementation)
+;@Ahk2Exe-SetVersion 2.0.0.0
+;@Ahk2Exe-SetDescription DeskHider Plus - desktop icons and shortcut arrows
 ; Based on DeskHider by Ian Div (MIT License):
 ; https://github.com/iandiv/DeskHider
 ; Original desktop-icon hit-test logic credited by DeskHider to iPhilip.
@@ -27,11 +30,17 @@ global APP_REG_KEY := "HKLM\SOFTWARE\DeskHiderPlus"
 global USER_REG_KEY := "HKCU\SOFTWARE\DeskHiderPlus"
 global RUN_KEY := "HKCU\Software\Microsoft\Windows\CurrentVersion\Run"
 global BLANK_ICON_DIR := A_AppDataCommon "\DeskHiderPlus"
-global BLANK_ICON_PATH := BLANK_ICON_DIR "\blank_v4_mask.ico"
+global BLANK_ICON_PATH := BLANK_ICON_DIR "\blank_v6_argb.ico"
+global V5_BLANK_ICON_PATH := BLANK_ICON_DIR "\blank_v5_mask.ico"
+global V4_BLANK_ICON_PATH := BLANK_ICON_DIR "\blank_v4_mask.ico"
 global V3_BLANK_ICON_PATH := BLANK_ICON_DIR "\blank_v3.ico"
 global LEGACY_BLANK_ICON_PATH := BLANK_ICON_DIR "\blank.ico"
-global OWNED_ICON_PATHS := [BLANK_ICON_PATH, V3_BLANK_ICON_PATH, LEGACY_BLANK_ICON_PATH]
+global OWNED_ICON_PATHS := [BLANK_ICON_PATH, V5_BLANK_ICON_PATH, V4_BLANK_ICON_PATH, V3_BLANK_ICON_PATH, LEGACY_BLANK_ICON_PATH]
 global OVERLAY_VALUE := BLANK_ICON_PATH ",0"
+global RECOVERY_ROOT := A_ScriptDir "\项目辅助文件\图标修复备份"
+global LAST_RECOVERY_DIR := ""
+global OverlayHealthVerified := false
+global APP_PROTOCOL_VERSION := 20000
 global DesktopIconsIsShow := 1
 global TrayIconVisible := 1
 
@@ -46,6 +55,14 @@ if (A_Args.Length() >= 1)
     ; Parse/build smoke check: exits before touching settings or the resident app.
     if (action = "/validate")
         ExitApp, 0
+
+    if (action = "/verifyoverlay")
+    {
+        if (A_Args.Length() >= 2 && InStr(FileExist(A_Args[2]), "D"))
+            LAST_RECOVERY_DIR := A_Args[2]
+        result := VerifyRestoredShortcutOverlay()
+        ExitApp, %result%
+    }
 
     if (action = "/hidearrows")
     {
@@ -62,6 +79,14 @@ if (A_Args.Length() >= 1)
         result := RestoreShortcutArrowsAdmin()
         ExitApp, %result%
     }
+}
+
+; Keep cache work in the interactive user's ordinary process, including when
+; UAC uses a different administrator account for the short-lived registry helper.
+if (A_IsAdmin)
+{
+    MsgBox, 48, DeskHider Plus, Please run DeskHider Plus normally, without Run as administrator.`n`nAdministrator permission will be requested only when changing the shortcut-arrow registry setting.
+    ExitApp
 }
 
 ; Keep only one normal resident instance, while still allowing the short-lived
@@ -85,33 +110,37 @@ if (A_LastError = 183) ; ERROR_ALREADY_EXISTS
         Sleep, 50
     }
 
-    if (targetHwnd)
-        DllCall("User32.dll\PostMessageW", "Ptr", targetHwnd, "UInt", SHOW_TRAY_MESSAGE, "Ptr", 0, "Ptr", 0)
-    ExitApp
+    if (!targetHwnd)
+        ExitApp
+    version := 0
+    DllCall("User32\SendMessageTimeoutW", "Ptr", targetHwnd, "UInt", 0x8003
+        , "Ptr", 0, "Ptr", 0, "UInt", 2, "UInt", 1000, "PtrP", version, "Ptr")
+    if (version = APP_PROTOCOL_VERSION)
+    {
+        DllCall("User32\PostMessageW", "Ptr", targetHwnd, "UInt", SHOW_TRAY_MESSAGE, "Ptr", 0, "Ptr", 0)
+        ExitApp
+    }
+    MsgBox, 36, DeskHider Plus, An older DeskHider Plus instance is running.`n`nClose that instance and open this version? Desktop icons will not be changed until you confirm the repair prompt.
+    IfMsgBox, No
+        ExitApp
+    WinGet, oldPid, PID, ahk_id %targetHwnd%
+    if (oldPid)
+    {
+        Process, Close, %oldPid%
+        Process, WaitClose, %oldPid%, 5
+        if (ErrorLevel)
+        {
+            MsgBox, 16, DeskHider Plus, Could not close the older instance. Exit it from its tray menu and run this version again.
+            ExitApp
+        }
+    }
 }
 
 ; Give the resident instance a stable hidden window name for future launches.
 DetectHiddenWindows, On
 WinSetTitle, ahk_id %A_ScriptHwnd%,, DeskHiderPlus_IPC_Window
 OnMessage(SHOW_TRAY_MESSAGE, "ShowTrayFromMessage")
-
-; One-time migration from both PNG-based blank.ico and 32bpp blank_v3.ico.
-; The replacement is persisted before Explorer restarts, so it is ready at logon.
-if (IsLegacyOverlayActive())
-{
-    MsgBox, 36, DeskHider Plus, An older or missing DeskHider Plus shortcut overlay was detected.`n`nOlder transparent icons can cover or cut out the lower-left corner of shortcuts after sign-in. This version uses a multi-size monochrome icon with an AND transparency mask and no alpha channel.`n`nRepair it now? Administrator permission is required and Windows Explorer will restart. Open File Explorer windows may close.
-    IfMsgBox, Yes
-    {
-        code := RunElevatedHelper("/hidearrows")
-        if (code = 0)
-        {
-            RestartExplorer()
-            DesktopIconsIsShow := 1
-        }
-        else if (code != "ERROR")
-            MsgBox, 16, DeskHider Plus, Automatic repair failed. Error code: %code%
-    }
-}
+OnMessage(0x8003, "GetAppProtocolVersion")
 
 ; -----------------------------------------------------------------------------
 ; Tray menu
@@ -120,14 +149,26 @@ if (IsLegacyOverlayActive())
 Menu, Tray, NoStandard
 Menu, Tray, Add, Hide / repair shortcut arrows, TrayHideArrows
 Menu, Tray, Add, Restore shortcut arrows, TrayRestoreArrows
+Menu, Tray, Add, Rebuild icon cache, TrayRebuildIcons
 Menu, Tray, Add
 Menu, Tray, Add, Run at startup, ToggleStartup
 Menu, Tray, Add, Show tray icon, ToggleTrayIcon
 Menu, Tray, Add
 Menu, Tray, Add, Exit, QuitScript
-Menu, Tray, Tip, DeskHider Plus
+Menu, Tray, Tip, DeskHider Plus v2.0
 ApplyTrayPreference()
+
+; Check once per launch in a separate process. No timers or background polling.
+configured := IsArrowsConfiguredByUs()
+if (configured)
+    OverlayHealthVerified := (RunOverlayVerification() = 0)
 RefreshTrayState()
+if (IsLegacyOverlayActive() || (configured && !OverlayHealthVerified))
+{
+    MsgBox, 36, DeskHider Plus, An older or unhealthy shortcut overlay was detected.`n`nRepair will update the overlay, archive and rebuild this user's icon cache, and check Windows' restored system image list. If hiding fails, the program will attempt to restore the original arrows.`n`nExplorer will restart and open File Explorer windows may close. Repair now?
+    IfMsgBox, Yes
+        PerformOverlayAction("hide", true)
+}
 Return
 
 ; -----------------------------------------------------------------------------
@@ -157,55 +198,33 @@ Return
 ; -----------------------------------------------------------------------------
 
 TrayHideArrows:
-    MsgBox, 36, DeskHider Plus, DeskHider Plus will hide or repair Windows shortcut arrows using a mask-only transparent icon.`n`nAdministrator permission is required only for this operation. Windows Explorer will restart so the change takes effect immediately, and open File Explorer windows may close.`n`nContinue?
-    IfMsgBox, No
-        Return
-
-    code := RunElevatedHelper("/hidearrows")
-    if (code = "ERROR")
-    {
-        MsgBox, 48, DeskHider Plus, The operation was not completed. The administrator permission request may have been cancelled.
-        Return
-    }
-
-    if (code != 0)
-    {
-        MsgBox, 16, DeskHider Plus, Failed to hide shortcut arrows. Error code: %code%
-        Return
-    }
-
-    RestartExplorer()
-    DesktopIconsIsShow := 1
-    RefreshTrayState()
+    PerformOverlayAction("hide")
 Return
 
 TrayRestoreArrows:
-    MsgBox, 36, DeskHider Plus, DeskHider Plus will restore the shortcut-arrow setting that existed before it made changes.`n`nAdministrator permission is required only for this operation. Windows Explorer will restart so the change takes effect immediately, and open File Explorer windows may close.`n`nContinue?
+    PerformOverlayAction("restore")
+Return
+
+TrayRebuildIcons:
+    MsgBox, 36, DeskHider Plus, Archive and rebuild this user's icon cache?`n`nExplorer will restart and open File Explorer windows may close. The shortcut-arrow registry setting will be preserved.
     IfMsgBox, No
         Return
-
-    code := RunElevatedHelper("/restorearrows")
-    if (code = "ERROR")
+    if (NewIconRecoveryFolder() = "")
     {
-        MsgBox, 48, DeskHider Plus, The operation was not completed. The administrator permission request may have been cancelled.
+        MsgBox, 16, DeskHider Plus, Cannot create the recovery folder beside this EXE. Move the program to a writable permanent folder and try again.
         Return
     }
-
-    if (code = 31)
-    {
-        MsgBox, 48, DeskHider Plus, The shortcut-arrow setting was changed by another program or manually after DeskHider Plus modified it. To avoid overwriting that newer setting, restore was cancelled.
-        Return
-    }
-
-    if (code != 0)
-    {
-        MsgBox, 16, DeskHider Plus, Failed to restore shortcut arrows. Error code: %code%
-        Return
-    }
-
-    RestartExplorer()
+    SnapshotShortcutSettings()
+    code := RebuildShortcutIconCache()
+    OverlayHealthVerified := (code = 0 && IsArrowsConfiguredByUs() && RunOverlayVerification() = 0)
     DesktopIconsIsShow := 1
     RefreshTrayState()
+    if (IsArrowsConfiguredByUs() && !OverlayHealthVerified)
+        RollBackFailedOverlay()
+    else if (code != 0)
+        MsgBox, 48, DeskHider Plus, The cache rebuild was incomplete (code %code%). Save your work and sign out and back in if icons remain incorrect.`n`nDetails: %LAST_RECOVERY_DIR%
+    else
+        MsgBox, 64, DeskHider Plus, The icon cache was rebuilt.`n`nRecovery files: %LAST_RECOVERY_DIR%
 Return
 
 ToggleStartup:
@@ -366,23 +385,83 @@ RunElevatedHelper(action)
     return ErrorLevel
 }
 
-RestartExplorer()
+RunOverlayVerification()
 {
-    ; Close Explorer, then wait for Windows' normal AutoRestartShell behavior.
-    ; Only start explorer.exe ourselves if the shell does not return.
-    RunWait, %ComSpec% /c taskkill /f /im explorer.exe,, Hide
-    WinWait, ahk_class Shell_TrayWnd,, 5
-    if (ErrorLevel)
-    {
-        Run, explorer.exe
-        WinWait, ahk_class Shell_TrayWnd,, 5
-    }
+    global LAST_RECOVERY_DIR
+    LogIconRecovery("Starting verification helper")
+    if (A_IsCompiled)
+        command := Chr(34) A_ScriptFullPath Chr(34) " /verifyoverlay " Chr(34) LAST_RECOVERY_DIR Chr(34)
+    else
+        command := Chr(34) A_AhkPath Chr(34) " " Chr(34) A_ScriptFullPath Chr(34) " /verifyoverlay " Chr(34) LAST_RECOVERY_DIR Chr(34)
+    result := RunBoundedOverlayHelper(command)
+    LogIconRecovery("Verification helper completed with " result)
+    return result
+}
 
-    ; Invalidate previously composed shortcut icons once, after the new shell
-    ; has loaded the replacement overlay. No cache-file deletion or logon timer.
-    ; SHCNE_ASSOCCHANGED | SHCNF_IDLIST | SHCNF_FLUSH
-    DllCall("Shell32.dll\SHChangeNotify", "Int", 0x08000000, "UInt", 0x1000
-        , "Ptr", 0, "Ptr", 0)
+PerformOverlayAction(action, confirmed := false)
+{
+    global OverlayHealthVerified, DesktopIconsIsShow, LAST_RECOVERY_DIR
+    if (!confirmed)
+    {
+        description := action = "hide" ? "Hide or repair shortcut arrows" : "Restore the original shortcut arrows"
+        MsgBox, 36, DeskHider Plus, %description%?`n`nAdministrator permission is needed for the registry change. The program will archive and rebuild this user's icon cache. Explorer will restart and open File Explorer windows may close.
+        IfMsgBox, No
+            return false
+    }
+    if (NewIconRecoveryFolder() = "")
+    {
+        MsgBox, 16, DeskHider Plus, Cannot create the recovery folder beside this EXE. Move the program to a writable permanent folder and try again.
+        return false
+    }
+    SnapshotShortcutSettings()
+    code := RunElevatedHelper(action = "hide" ? "/hidearrows" : "/restorearrows")
+    LogIconRecovery("Registry action " action " returned " code)
+    if (code != 0)
+    {
+        message := code = 31 ? "Another program changed the overlay setting. It has been preserved." : "The registry operation was not completed. Administrator permission may have been cancelled."
+        MsgBox, 48, DeskHider Plus, %message%`n`nCode: %code%`nDetails: %LAST_RECOVERY_DIR%
+        return false
+    }
+    OverlayHealthVerified := false
+    code := RebuildShortcutIconCache()
+    DesktopIconsIsShow := 1
+    if (action = "hide")
+    {
+        check := RunOverlayVerification()
+        LogIconRecovery("Restored Shell overlay verification returned " check)
+        if (code != 0 || check != 0)
+            return RollBackFailedOverlay()
+        OverlayHealthVerified := true
+    }
+    RefreshTrayState()
+    if (code != 0)
+    {
+        MsgBox, 48, DeskHider Plus, The original arrow setting was restored, but the icon cache rebuild was incomplete (code %code%). Save your work and sign out and back in if icons remain incorrect.`n`nDetails: %LAST_RECOVERY_DIR%
+        return false
+    }
+    MsgBox, 64, DeskHider Plus, The operation completed. Please check your desktop icons and check again after restarting Windows.`n`nRecovery files: %LAST_RECOVERY_DIR%
+    return true
+}
+
+RollBackFailedOverlay()
+{
+    global OverlayHealthVerified, LAST_RECOVERY_DIR
+    OverlayHealthVerified := false
+    code := RunElevatedHelper("/restorearrows")
+    LogIconRecovery("Safety restore returned " code)
+    cacheCode := code = 0 ? RebuildShortcutIconCache() : -1
+    RefreshTrayState()
+    if (code = 0 && cacheCode = 0)
+        MsgBox, 48, DeskHider Plus, Windows did not load the hidden-arrow overlay correctly. The original arrow setting has been restored and the icon cache rebuilt.`n`nHiding has been left off. Please report this result before using Hide again.`n`nDetails: %LAST_RECOVERY_DIR%
+    else
+        MsgBox, 16, DeskHider Plus, The overlay check failed and recovery is incomplete (registry %code%; cache %cacheCode%). Use Restore shortcut arrows and save your work before signing out and back in.`n`nDetails: %LAST_RECOVERY_DIR%
+    return false
+}
+
+GetAppProtocolVersion(wParam, lParam, msg, hwnd)
+{
+    global APP_PROTOCOL_VERSION
+    return APP_PROTOCOL_VERSION
 }
 
 ; -----------------------------------------------------------------------------
@@ -407,13 +486,13 @@ ApplyTrayPreference()
 
 RefreshTrayState()
 {
-    global TrayIconVisible
+    global TrayIconVisible, OverlayHealthVerified
 
     Menu, Tray, Uncheck, Hide / repair shortcut arrows
     Menu, Tray, Uncheck, Run at startup
     Menu, Tray, Uncheck, Show tray icon
 
-    if (IsArrowsHiddenByUs())
+    if (OverlayHealthVerified && IsArrowsConfiguredByUs())
         Menu, Tray, Check, Hide / repair shortcut arrows
 
     if (IsStartupEnabled())
@@ -459,3 +538,4 @@ IsStartupEnabled()
 
 ; Shared overlay implementation is also exercised by the isolated regression tests.
 #Include %A_ScriptDir%\lib\ShortcutArrows.ahk
+#Include %A_ScriptDir%\lib\ShellIconCache.ahk

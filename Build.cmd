@@ -124,6 +124,11 @@ if "%OUTSIZE%"=="0" (
 )
 
 echo [5/5] Build complete.
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0tools\Normalize-PeVersion.ps1" -Path "%OUT%"
+if errorlevel 1 (
+    echo ERROR: Failed to normalize executable version-resource padding.
+    exit /b 33
+)
 powershell.exe -NoProfile -Command "$h=(Get-FileHash -LiteralPath '%OUT%' -Algorithm SHA256).Hash; Write-Host ('DeskHiderPlus.exe SHA256: '+$h)"
 echo Output size: %OUTSIZE% bytes
 exit /b 0

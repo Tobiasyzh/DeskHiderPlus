@@ -1,5 +1,6 @@
 # Local build output
 DeskHiderPlus.exe
+dist/
 build_log.txt
 项目辅助文件/
 

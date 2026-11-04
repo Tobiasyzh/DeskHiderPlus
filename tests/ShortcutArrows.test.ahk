@@ -11,27 +11,29 @@ global TEST_KEY := "HKCU\Software\DeskHiderPlus_Test_" DllCall("GetCurrentProces
 global SHELL_ICONS_KEY := TEST_KEY "\Shell Icons"
 global APP_REG_KEY := TEST_KEY "\Backup"
 global BLANK_ICON_DIR := OUTPUT_DIR "\test-icons"
-global BLANK_ICON_PATH := BLANK_ICON_DIR "\blank_v4_mask.ico"
+global BLANK_ICON_PATH := BLANK_ICON_DIR "\blank_v6_argb.ico"
+global V5_BLANK_ICON_PATH := BLANK_ICON_DIR "\blank_v5_mask.ico"
+global V4_BLANK_ICON_PATH := BLANK_ICON_DIR "\blank_v4_mask.ico"
 global V3_BLANK_ICON_PATH := BLANK_ICON_DIR "\blank_v3.ico"
 global LEGACY_BLANK_ICON_PATH := BLANK_ICON_DIR "\blank.ico"
-global OWNED_ICON_PATHS := [BLANK_ICON_PATH, V3_BLANK_ICON_PATH, LEGACY_BLANK_ICON_PATH]
+global OWNED_ICON_PATHS := [BLANK_ICON_PATH, V5_BLANK_ICON_PATH, V4_BLANK_ICON_PATH, V3_BLANK_ICON_PATH, LEGACY_BLANK_ICON_PATH]
 global OVERLAY_VALUE := BLANK_ICON_PATH ",0"
 global ASSERTIONS := 0
 
 exitCode := 0
 OnError("TestFailure")
     FileCreateDir, %OUTPUT_DIR%
-    Assert(WriteTransparentIcon(OUTPUT_DIR "\blank_v4_mask.ico"), "export generated ICO")
+    Assert(WriteTransparentIcon(OUTPUT_DIR "\blank_v6_argb.ico"), "export generated ICO")
 
     ResetState()
     result := HideShortcutArrowsAdmin()
     Assert(result = 0, "first hide succeeds (code " result ")")
-    Assert(IsArrowsHiddenByUs(), "new overlay is active")
+    Assert(IsArrowsConfiguredByUs(), "new overlay is configured")
     Assert(!IsLegacyOverlayActive(), "new overlay needs no migration")
     Assert(ReadValue(APP_REG_KEY, "BackupState") = "MISSING", "missing original is recorded")
     Assert(RestoreShortcutArrowsAdmin() = 0, "restore default succeeds")
     Assert(ValueMissing(SHELL_ICONS_KEY, "29"), "restore removes only our overlay value")
-    Assert(!FileExist(BLANK_ICON_PATH), "restore removes new icon")
+    Assert(FileExist(BLANK_ICON_PATH), "restore retains the resource until shells release it")
 
     ResetState()
     original := "C:\Example\custom overlay.dll,7"
@@ -42,8 +44,8 @@ OnError("TestFailure")
     Assert(RestoreShortcutArrowsAdmin() = 0, "restore custom overlay")
     Assert(ReadValue(SHELL_ICONS_KEY, "29") = original, "custom overlay survives hide/repair/restore")
 
-    ; Both legacy filenames, indexed/unindexed and quoted paths, are recognized.
-    for _, legacyPath in [LEGACY_BLANK_ICON_PATH, V3_BLANK_ICON_PATH]
+    ; All legacy filenames, indexed/unindexed and quoted paths, are recognized.
+    for _, legacyPath in [LEGACY_BLANK_ICON_PATH, V3_BLANK_ICON_PATH, V4_BLANK_ICON_PATH, V5_BLANK_ICON_PATH]
     {
         for _, legacyValue in [legacyPath, legacyPath ",0", Chr(34) legacyPath Chr(34) ",0"]
         {
@@ -79,9 +81,9 @@ OnError("TestFailure")
     Assert(HideShortcutArrowsAdmin() = 0, "prepare missing-file repair")
     FileDelete, %BLANK_ICON_PATH%
     Assert(IsLegacyOverlayActive(), "missing new icon offers repair")
-    Assert(!IsArrowsHiddenByUs(), "missing new icon is not shown as healthy")
+    Assert(!IsArrowsConfiguredByUs(), "missing new icon is not shown as configured")
     Assert(HideShortcutArrowsAdmin() = 0, "missing new icon can be recreated")
-    Assert(IsArrowsHiddenByUs(), "repaired icon is healthy")
+    Assert(IsArrowsConfiguredByUs(), "repaired icon is configured; visual health is checked separately")
 
     ResetState()
     Assert(HideShortcutArrowsAdmin() = 0, "prepare stale-backup test")
